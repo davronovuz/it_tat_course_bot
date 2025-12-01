@@ -1,4 +1,4 @@
-# handlers/admins/channel_handler.py
+# handlers/admin/channel_handler.py
 # Kanallar boshqaruvi
 
 from aiogram import types
