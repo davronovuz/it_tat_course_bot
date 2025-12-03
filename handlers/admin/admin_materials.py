@@ -6,15 +6,12 @@ Dars materiallarini qo'shish, tahrirlash, o'chirish handlerlari
 
 from aiogram import types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import Text
 
 from loader import dp, bot, user_db
-from keyboards.default.admin_keyboards import (
+from keyboards.inline.admin_keyboards import (
     materials_list,
     material_detail,
-    material_type_select,
-    confirm_action,
-    back_button
+    confirm_action
 )
 from keyboards.default.admin_keyboards import (
     admin_cancel_button,
@@ -262,7 +259,7 @@ async def add_material_description(message: types.Message, state: FSMContext):
 📝 Nom: <b>{data['name']}</b>
 {icon} Turi: {data['file_type'].upper()}
 📦 Hajmi: {size_str}
-📄 Tavsif: {description or '<i>Yo\'q</i>'}
+📄 Tavsif: {description or '<i>Yoq</i>'}
 
 ✅ Tasdiqlaysizmi?
 """
@@ -358,7 +355,7 @@ async def view_material(call: types.CallbackQuery):
 └ Qo'shilgan: {material['created_at'][:10]}
 
 📄 <b>Tavsif:</b>
-{material.get('description') or '<i>Tavsif yo\'q</i>'}
+{material.get('description') or '<i>Tavsif yoq</i>'}
 
 ⬇️ Amal tanlang:
 """
@@ -628,7 +625,7 @@ async def cancel_delete_material(call: types.CallbackQuery):
 └ Hajmi: {size_str}
 
 📄 <b>Tavsif:</b>
-{material.get('description') or '<i>Tavsif yo\'q</i>'}
+{material.get('description') or '<i>Tavsif yoq</i>'}
 """
 
         await call.message.edit_text(

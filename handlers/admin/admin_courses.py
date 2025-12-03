@@ -6,11 +6,9 @@ Kurslarni qo'shish, tahrirlash, o'chirish handlerlari
 
 from aiogram import types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import Text
 
-from loader import dp, bot, user_db
-from keyboards.default.admin_keyboards import (
-    courses_menu,
+from loader import dp, user_db
+from keyboards.inline.admin_keyboards import (
     courses_list,
     course_detail,
     course_edit_menu,
@@ -171,7 +169,7 @@ async def add_course_price(message: types.Message, state: FSMContext):
 📚 <b>Yangi kurs</b>
 
 📝 Nom: <b>{data['name']}</b>
-📄 Tavsif: {data.get('description') or '<i>Yo\'q</i>'}
+📄 Tavsif: {data.get('description') or '<i>Yoq</i>'}
 💰 Narx: <b>{price:,.0f} so'm</b>
 
 ✅ Tasdiqlaysizmi?
@@ -255,7 +253,7 @@ async def view_course(call: types.CallbackQuery):
 {status}
 
 📄 <b>Tavsif:</b>
-{course.get('description') or '<i>Tavsif yo\'q</i>'}
+{course.get('description') or '<i>Tavsif yoq</i>'}
 
 💰 <b>Narx:</b> {course['price']:,.0f} so'm
 
@@ -522,7 +520,7 @@ async def activate_course(call: types.CallbackQuery):
 ✅ Faol
 
 📄 <b>Tavsif:</b>
-{course.get('description') or '<i>Tavsif yo\'q</i>'}
+{course.get('description') or '<i>Tavsif yoq</i>'}
 
 💰 <b>Narx:</b> {course['price']:,.0f} so'm
 
@@ -560,7 +558,7 @@ async def deactivate_course(call: types.CallbackQuery):
 ❌ Nofaol
 
 📄 <b>Tavsif:</b>
-{course.get('description') or '<i>Tavsif yo\'q</i>'}
+{course.get('description') or '<i>Tavsif yoq</i>'}
 
 💰 <b>Narx:</b> {course['price']:,.0f} so'm
 
@@ -660,7 +658,7 @@ async def cancel_delete_course(call: types.CallbackQuery):
 {"✅ Faol" if course['is_active'] else "❌ Nofaol"}
 
 📄 <b>Tavsif:</b>
-{course.get('description') or '<i>Tavsif yo\'q</i>'}
+{course.get('description') or '<i>Tavsif yoq</i>'}
 
 💰 <b>Narx:</b> {course['price']:,.0f} so'm
 

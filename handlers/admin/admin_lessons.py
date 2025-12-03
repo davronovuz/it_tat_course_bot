@@ -6,15 +6,13 @@ Darslarni qo'shish, tahrirlash, o'chirish handlerlari
 
 from aiogram import types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import Text
 
 from loader import dp, bot, user_db
-from keyboards.default.admin_keyboards import (
+from keyboards.inline.admin_keyboards import (
     lessons_list,
     lesson_detail,
     lesson_edit_menu,
-    confirm_action,
-    back_button
+    confirm_action
 )
 from keyboards.default.admin_keyboards import (
     admin_cancel_button,
@@ -247,7 +245,7 @@ async def add_lesson_is_free(message: types.Message, state: FSMContext):
 
 📁 Modul: {data['module_name']}
 📝 Nom: <b>{data['name']}</b>
-📄 Tavsif: {data.get('description') or '<i>Yo\'q</i>'}
+📄 Tavsif: {data.get('description') or '<i>Yoq</i>'}
 🎬 Video: {video_status}
 🆓 Bepul: {free_status}
 
@@ -352,7 +350,7 @@ async def view_lesson(call: types.CallbackQuery):
 🔢 Tartib: {lesson['order_num']}
 
 📄 <b>Tavsif:</b>
-{lesson.get('description') or '<i>Tavsif yo\'q</i>'}
+{lesson.get('description') or '<i>Tavsif yoq</i>'}
 
 📊 <b>Ma'lumotlar:</b>
 ├ 🎬 Video: {video_status}
@@ -692,7 +690,7 @@ async def make_lesson_free(call: types.CallbackQuery):
 🔢 Tartib: {lesson['order_num']}
 
 📄 <b>Tavsif:</b>
-{lesson.get('description') or '<i>Tavsif yo\'q</i>'}
+{lesson.get('description') or '<i>Tavsif yoq</i>'}
 
 📊 <b>Ma'lumotlar:</b>
 ├ 🎬 Video: {'✅ Bor' if lesson['video_file_id'] else '❌ Yo`q'}
@@ -737,7 +735,7 @@ async def make_lesson_paid(call: types.CallbackQuery):
 🔢 Tartib: {lesson['order_num']}
 
 📄 <b>Tavsif:</b>
-{lesson.get('description') or '<i>Tavsif yo\'q</i>'}
+{lesson.get('description') or '<i>Tavsif yoq</i>'}
 
 📊 <b>Ma'lumotlar:</b>
 ├ 🎬 Video: {'✅ Bor' if lesson['video_file_id'] else '❌ Yo`q'}

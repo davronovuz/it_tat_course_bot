@@ -6,15 +6,13 @@ Modullarni qo'shish, tahrirlash, o'chirish handlerlari
 
 from aiogram import types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import Text
 
-from loader import dp, bot, user_db
-from keyboards.default.admin_keyboards import (
+from loader import dp, user_db
+from keyboards.inline.admin_keyboards import (
     modules_list,
     module_detail,
     module_edit_menu,
-    confirm_action,
-    back_button
+    confirm_action
 )
 from keyboards.default.admin_keyboards import (
     admin_cancel_button,
@@ -163,7 +161,7 @@ async def add_module_description(message: types.Message, state: FSMContext):
 
 📚 Kurs: {data['course_name']}
 📝 Nom: <b>{data['name']}</b>
-📄 Tavsif: {description or '<i>Yo\'q</i>'}
+📄 Tavsif: {description or '<i>Yoq</i>'}
 
 ✅ Tasdiqlaysizmi?
 """
@@ -248,7 +246,7 @@ async def view_module(call: types.CallbackQuery):
 🔢 Tartib: {module['order_num']}
 
 📄 <b>Tavsif:</b>
-{module.get('description') or '<i>Tavsif yo\'q</i>'}
+{module.get('description') or '<i>Tavsif yoq</i>'}
 
 📊 <b>Statistika:</b>
 └ 📹 Darslar: {lessons_count} ta
@@ -475,7 +473,7 @@ async def activate_module(call: types.CallbackQuery):
 🔢 Tartib: {module['order_num']}
 
 📄 <b>Tavsif:</b>
-{module.get('description') or '<i>Tavsif yo\'q</i>'}
+{module.get('description') or '<i>Tavsif yoq</i>'}
 
 📊 <b>Statistika:</b>
 └ 📹 Darslar: {len(lessons)} ta
@@ -513,7 +511,7 @@ async def deactivate_module(call: types.CallbackQuery):
 🔢 Tartib: {module['order_num']}
 
 📄 <b>Tavsif:</b>
-{module.get('description') or '<i>Tavsif yo\'q</i>'}
+{module.get('description') or '<i>Tavsif yoq</i>'}
 
 📊 <b>Statistika:</b>
 └ 📹 Darslar: {len(lessons)} ta
@@ -623,7 +621,7 @@ async def cancel_delete_module(call: types.CallbackQuery):
 🔢 Tartib: {module['order_num']}
 
 📄 <b>Tavsif:</b>
-{module.get('description') or '<i>Tavsif yo\'q</i>'}
+{module.get('description') or '<i>Tavsif yoq</i>'}
 
 📊 <b>Statistika:</b>
 └ 📹 Darslar: {len(lessons)} ta
