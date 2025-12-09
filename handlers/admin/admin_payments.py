@@ -327,7 +327,7 @@ async def approve_payment(call: types.CallbackQuery):
 
     await call.answer("✅ To'lov tasdiqlandi!", show_alert=True)
 
-    # Foydalanuvchiga xabar
+    # Foydalanuvchiga xabar yuborish - TUGMA BILAN
     try:
         user_text = f"""
 🎉 <b>To'lovingiz tasdiqlandi!</b>
@@ -335,10 +335,16 @@ async def approve_payment(call: types.CallbackQuery):
 📚 Kurs: {payment[7]}
 💰 Summa: {payment[3]:,.0f} so'm
 
-Endi kursni boshlashingiz mumkin!
-"📚 Mening kurslarim" bo'limiga kiring.
+Endi darslarni boshlashingiz mumkin!
 """
-        await bot.send_message(payment[6], user_text)  # telegram_id
+        # Darslarni ko'rish tugmasi
+        user_kb = types.InlineKeyboardMarkup()
+        user_kb.add(types.InlineKeyboardButton(
+            "📚 Darslarni ko'rish",
+            callback_data="user:lessons"
+        ))
+
+        await bot.send_message(payment[6], user_text, reply_markup=user_kb)
     except Exception as e:
         print(f"Foydalanuvchiga xabar yuborib bo'lmadi: {e}")
 
