@@ -1,7 +1,11 @@
 """
-User Start Handler
-==================
-/start buyrug'i va ro'yxatdan o'tish handlerlari
+User Start Handler (SODDALASHTIRILGAN)
+======================================
+Oqim:
+1. /start → Demo dars tugmasi
+2. Demo dars → Video + Ro'yxatdan o'tish tugmasi
+3. Ro'yxatdan o'tish → Ism, Telefon
+4. Kursni boshlash → 1-dars
 """
 
 from aiogram import types
@@ -9,109 +13,175 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import CommandStart, Text
 
 from loader import dp, user_db
-from keyboards.default.user_keyboards import (
-    main_menu,
-    phone_request,
-    back_to_main,
-    confirm_keyboard
-)
+from keyboards.default.user_keyboards import phone_request, remove_keyboard
 from keyboards.inline.user_keyboards import (
-    courses_list,
-    main_menu_inline
+    demo_lesson_button,
+    after_demo_not_registered,
+    after_demo_registered,
+    simple_lessons_list,
+    payment_info,
+    payment_pending
 )
-from states.user_states import RegistrationStates
+from states.user_states import RegistrationStates, PaymentStates
 
 
 # ============================================================
-#                    /START BUYRUG'I
+#                    1. /START BUYRUG'I
 # ============================================================
 
 @dp.message_handler(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
-    """/start buyrug'i"""
+    """
+    /start buyrug'i
+    """
     await state.finish()
 
     telegram_id = message.from_user.id
     username = message.from_user.username
     full_name = message.from_user.full_name
 
-    # Foydalanuvchi mavjudligini tekshirish
-    if user_db.user_exists(telegram_id):
-        # Mavjud foydalanuvchi
-        user = user_db.get_user(telegram_id)
+    # Foydalanuvchi bazada bormi?
+    user = user_db.get_user(telegram_id)
 
-        # So'nggi faollikni yangilash
+    if not user:
+        # Yangi user - bazaga qo'shish
+        user_db.add_user(telegram_id, username=username, full_name=full_name)
+    else:
+        # Mavjud user - yangilash
         user_db.update_user(telegram_id, username=username)
 
-        text = f"""
-👋 <b>Xush kelibsiz, {user.get('full_name') or full_name}!</b>
+        user_id = user['id']
 
-📚 O'quv markazimizga qaytganingizdan xursandmiz!
+        # Agar to'lagan bo'lsa - darslarni ko'rsat
+        if check_has_paid_course(user_id):
+            await show_lessons_list(message, user_id)
+            return
 
-Quyidagi menyudan kerakli bo'limni tanlang:
+    # Hammaga demo dars taklif qilinadi
+    text = """
+Assalomu alaykum! 
+
+Kompyuter savodxonligi bo'yicha online darslarga xush kelibsiz.
+
+Avval bepul demo darsni ko'rib chiqing 👇
 """
 
-        await message.answer(text, reply_markup=main_menu())
+    await message.answer(text, reply_markup=demo_lesson_button())
 
+
+# ============================================================
+#                    2. DEMO DARS
+# ============================================================
+
+@dp.callback_query_handler(text="user:demo")
+async def show_demo_lesson(call: types.CallbackQuery):
+    """
+    Demo darsni ko'rsatish
+    """
+    # Bepul darsni olish (admin is_free=True qilgan)
+    demo = user_db.execute(
+        """SELECT l.id, l.name, l.description, l.video_url, l.video_file_id
+           FROM Lessons l
+           JOIN Modules m ON l.module_id = m.id
+           JOIN Courses c ON m.course_id = c.id
+           WHERE l.is_free = TRUE AND l.is_active = TRUE 
+               AND m.is_active = TRUE AND c.is_active = TRUE
+           ORDER BY c.order_num, m.order_num, l.order_num
+           LIMIT 1""",
+        fetchone=True
+    )
+
+    if not demo:
+        await call.answer("❌ Demo dars topilmadi", show_alert=True)
+        return
+
+    lesson_id, name, description, video_url, video_file_id = demo
+
+    # Dars haqida matn
+    caption = f"""
+📘 <b>Demo dars: {name}</b>
+
+{description or "Bu darsda siz kompyuterning asosiy ishlashini ko'rasiz."}
+"""
+
+    # Avvalgi xabarni o'chirish
+    await call.message.delete()
+
+    # Video yuborish
+    if video_file_id:
+        await call.message.answer_video(video_file_id, caption=caption)
+    elif video_url:
+        await call.message.answer_video(video_url, caption=caption)
     else:
-        # Yangi foydalanuvchi - ro'yxatdan o'tkazish
-        text = f"""
-👋 <b>Assalomu alaykum, {full_name}!</b>
+        # Video yo'q - faqat matn
+        await call.message.answer(caption)
 
-📚 O'quv markazimizga xush kelibsiz!
+    # Keyingi qadam - ro'yxatdan o'tish yoki to'lov
+    await show_after_demo(call.message, call.from_user.id)
 
-Davom etish uchun ro'yxatdan o'ting.
+    await call.answer()
 
-📝 Iltimos, to'liq ismingizni kiriting:
 
-<i>Masalan: Aliyev Ali</i>
+async def show_after_demo(message: types.Message, telegram_id: int):
+    """
+    Demo ko'rgandan keyin keyingi tugma
+    """
+    user = user_db.get_user(telegram_id)
+
+    # Ro'yxatdan o'tganmi? (telefon bormi?)
+    if user and user.get('phone'):
+        # Ro'yxatdan o'tgan - to'lovga
+        text = """
+✅ Demo darsni ko'rdingiz!
+
+To'liq kursni olish uchun:
 """
+        await message.answer(text, reply_markup=after_demo_registered())
+    else:
+        # Ro'yxatdan o'tmagan
+        text = """
+✅ Demo darsni ko'rdingiz!
 
-        # Foydalanuvchini bazaga qo'shish (asosiy ma'lumotlar bilan)
-        user_db.add_user(telegram_id, username=username, full_name=full_name)
-
-        await message.answer(text, reply_markup=types.ReplyKeyboardRemove())
-        await RegistrationStates.full_name.set()
+Davom etish uchun ro'yxatdan o'ting:
+"""
+        await message.answer(text, reply_markup=after_demo_not_registered())
 
 
 # ============================================================
-#                    RO'YXATDAN O'TISH
+#                    3. RO'YXATDAN O'TISH
 # ============================================================
+
+@dp.callback_query_handler(text="user:register")
+async def start_registration(call: types.CallbackQuery, state: FSMContext):
+    """
+    Ro'yxatdan o'tishni boshlash - ism so'rash
+    """
+    await call.message.edit_text(
+        "📝 Ismingizni yuboring:\n\n"
+        "<i>Masalan: Aliyev Ali</i>"
+    )
+
+    await RegistrationStates.full_name.set()
+    await call.answer()
+
 
 @dp.message_handler(state=RegistrationStates.full_name)
-async def registration_full_name(message: types.Message, state: FSMContext):
-    """To'liq ismni qabul qilish"""
+async def get_full_name(message: types.Message, state: FSMContext):
+    """
+    Ismni qabul qilish
+    """
     full_name = message.text.strip()
 
-    # Validatsiya
+    # Tekshirish
     if len(full_name) < 3:
-        await message.answer(
-            "❌ Ism juda qisqa. Kamida 3 ta belgi kiriting.\n\n"
-            "📝 To'liq ismingizni kiriting:"
-        )
-        return
-
-    if len(full_name) > 100:
-        await message.answer(
-            "❌ Ism juda uzun. 100 ta belgidan oshmasin.\n\n"
-            "📝 To'liq ismingizni kiriting:"
-        )
-        return
-
-    # Faqat harflar va bo'shliq
-    if not all(c.isalpha() or c.isspace() or c == "'" for c in full_name):
-        await message.answer(
-            "❌ Ismda faqat harflar bo'lishi kerak.\n\n"
-            "📝 To'liq ismingizni kiriting:"
-        )
+        await message.answer("❌ Ism juda qisqa. Qaytadan kiriting:")
         return
 
     await state.update_data(full_name=full_name)
 
     await message.answer(
-        f"✅ Rahmat, <b>{full_name}</b>!\n\n"
-        f"📱 Endi telefon raqamingizni yuboring.\n\n"
-        f"Quyidagi tugmani bosing:",
+        f"👤 Ism: <b>{full_name}</b>\n\n"
+        "📱 Telefon raqamingizni yuboring:",
         reply_markup=phone_request()
     )
 
@@ -119,448 +189,539 @@ async def registration_full_name(message: types.Message, state: FSMContext):
 
 
 @dp.message_handler(state=RegistrationStates.phone, content_types=['contact'])
-async def registration_phone_contact(message: types.Message, state: FSMContext):
-    """Telefon raqamni contact orqali qabul qilish"""
+async def get_phone_contact(message: types.Message, state: FSMContext):
+    """
+    Telefon raqamni contact orqali olish
+    """
     phone = message.contact.phone_number
-
-    # +998 bilan boshlanishini tekshirish
     if not phone.startswith('+'):
         phone = '+' + phone
 
-    await state.update_data(phone=phone)
-
-    data = await state.get_data()
-
-    text = f"""
-📋 <b>Ma'lumotlaringizni tasdiqlang:</b>
-
-👤 Ism: <b>{data['full_name']}</b>
-📱 Telefon: <b>{phone}</b>
-
-✅ To'g'rimi?
-"""
-
-    await message.answer(text, reply_markup=confirm_keyboard())
-    await RegistrationStates.confirm.set()
+    await finish_registration(message, state, phone)
 
 
 @dp.message_handler(state=RegistrationStates.phone)
-async def registration_phone_text(message: types.Message, state: FSMContext):
-    """Telefon raqamni matn orqali qabul qilish"""
-    phone = message.text.strip()
+async def get_phone_text(message: types.Message, state: FSMContext):
+    """
+    Telefon raqamni matn orqali olish
+    """
+    if message.text == "❌ Bekor qilish":
+        await state.finish()
+        await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
+        return
 
-    # Telefon raqamni tozalash
+    phone = message.text.strip()
     phone_clean = ''.join(filter(str.isdigit, phone))
 
-    # Validatsiya
     if len(phone_clean) < 9:
         await message.answer(
             "❌ Telefon raqam noto'g'ri.\n\n"
-            "📱 Quyidagi tugmani bosing yoki raqamni kiriting:",
+            "📱 Qaytadan yuboring:",
             reply_markup=phone_request()
         )
         return
 
-    # +998 qo'shish
+    # Formatlash
     if phone_clean.startswith('998'):
         phone = '+' + phone_clean
-    elif phone_clean.startswith('9') and len(phone_clean) == 9:
+    elif len(phone_clean) == 9:
         phone = '+998' + phone_clean
     else:
         phone = '+998' + phone_clean[-9:]
 
-    await state.update_data(phone=phone)
+    await finish_registration(message, state, phone)
 
+
+async def finish_registration(message: types.Message, state: FSMContext, phone: str):
+    """
+    Ro'yxatdan o'tishni tugatish
+    """
     data = await state.get_data()
+    full_name = data.get('full_name', message.from_user.full_name)
 
-    text = f"""
-📋 <b>Ma'lumotlaringizni tasdiqlang:</b>
-
-👤 Ism: <b>{data['full_name']}</b>
-📱 Telefon: <b>{phone}</b>
-
-✅ To'g'rimi?
-"""
-
-    await message.answer(text, reply_markup=confirm_keyboard())
-    await RegistrationStates.confirm.set()
-
-
-@dp.message_handler(state=RegistrationStates.confirm)
-async def registration_confirm(message: types.Message, state: FSMContext):
-    """Ro'yxatdan o'tishni tasdiqlash"""
-
-    if message.text == "✅ Ha":
-        data = await state.get_data()
-
-        # Foydalanuvchi ma'lumotlarini yangilash
-        user_db.update_user(
-            message.from_user.id,
-            full_name=data['full_name'],
-            phone=data['phone']
-        )
-
-        await state.finish()
-
-        text = f"""
-🎉 <b>Tabriklaymiz!</b>
-
-Siz muvaffaqiyatli ro'yxatdan o'tdingiz!
-
-👤 {data['full_name']}
-📱 {data['phone']}
-
-📚 Endi kurslarimizni ko'rishingiz mumkin.
-"""
-
-        await message.answer(text, reply_markup=main_menu())
-
-    elif message.text == "❌ Yo'q":
-        await state.finish()
-
-        await message.answer(
-            "📝 Qaytadan ro'yxatdan o'tish uchun ismingizni kiriting:",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-
-        await RegistrationStates.full_name.set()
-
-    else:
-        await message.answer("✅ Ha yoki ❌ Yo'q tugmasini bosing")
-
-
-# ============================================================
-#                    BOSH MENYU HANDLERLARI
-# ============================================================
-
-@dp.message_handler(Text(equals="🏠 Bosh menyu"))
-async def back_to_main_menu(message: types.Message, state: FSMContext):
-    """Bosh menyuga qaytish"""
-    await state.finish()
-
-    user = user_db.get_user(message.from_user.id)
-
-    if user:
-        text = f"""
-👋 <b>{user.get('full_name', 'Foydalanuvchi')}</b>
-
-📚 Quyidagi menyudan tanlang:
-"""
-    else:
-        text = "📚 Quyidagi menyudan tanlang:"
-
-    await message.answer(text, reply_markup=main_menu())
-
-
-@dp.message_handler(Text(equals="⬅️ Orqaga"))
-async def back_button(message: types.Message, state: FSMContext):
-    """Orqaga tugmasi"""
-    current_state = await state.get_state()
-
-    if current_state:
-        await state.finish()
-
-    await message.answer("🏠 Bosh menyu", reply_markup=main_menu())
-
-
-@dp.message_handler(Text(equals="❌ Bekor qilish"), state="*")
-async def cancel_handler(message: types.Message, state: FSMContext):
-    """Bekor qilish"""
-    current_state = await state.get_state()
-
-    if current_state is None:
-        return
-
-    await state.finish()
-    await message.answer("❌ Bekor qilindi", reply_markup=main_menu())
-
-
-# ============================================================
-#                    MENING KURSLARIM
-# ============================================================
-
-@dp.message_handler(Text(equals="📚 Mening kurslarim"))
-async def my_courses(message: types.Message):
-    """Mening kurslarim"""
-    telegram_id = message.from_user.id
-
-    # Foydalanuvchi dostup olgan kurslar
-    user_id = user_db.get_user_id(telegram_id)
-
-    if not user_id:
-        await message.answer("❌ Avval ro'yxatdan o'ting: /start")
-        return
-
-    # Dostup bor kurslarni olish
-    result = user_db.execute(
-        """SELECT DISTINCT c.id, c.name, c.description, c.price
-           FROM Courses c
-           LEFT JOIN Payments p ON c.id = p.course_id AND p.user_id = ? AND p.status = 'approved'
-           LEFT JOIN ManualAccess ma ON c.id = ma.course_id AND ma.user_id = ? 
-               AND (ma.expires_at IS NULL OR ma.expires_at > datetime('now'))
-           WHERE c.is_active = TRUE 
-               AND (p.id IS NOT NULL OR ma.id IS NOT NULL)
-           ORDER BY c.order_num""",
-        parameters=(user_id, user_id),
-        fetchall=True
+    # Bazaga saqlash
+    user_db.update_user(
+        message.from_user.id,
+        full_name=full_name,
+        phone=phone
     )
 
-    if not result:
-        text = """
-📚 <b>Mening kurslarim</b>
-
-📭 Sizda hozircha kurslar yo'q.
-
-Kurs sotib olish uchun "🛒 Kurs sotib olish" tugmasini bosing.
-Yoki bepul darslarni ko'ring.
-"""
-        await message.answer(text, reply_markup=main_menu())
-        return
-
-    courses = []
-    for row in result:
-        courses.append({
-            'id': row[0],
-            'name': row[1],
-            'description': row[2],
-            'price': row[3],
-            'has_access': True
-        })
+    await state.finish()
 
     text = f"""
-📚 <b>Mening kurslarim</b>
+✅ Rahmat! Siz ro'yxatdan o'tdingiz.
 
-Sizda {len(courses)} ta kurs mavjud.
-
-⬇️ Davom etish uchun kursni tanlang:
+👤 Ism: {full_name}
+📱 Telefon: {phone}
 """
 
-    await message.answer(text, reply_markup=courses_list(courses, user_id))
+    await message.answer(text, reply_markup=remove_keyboard())
 
+    # Keyingi tugma - kursni boshlash yoki sotib olish
+    course = get_main_course()
 
-# ============================================================
-#                    BEPUL DARSLAR
-# ============================================================
+    if course and course.get('price', 0) > 0:
+        # Pullik kurs - to'lov kerak
+        price = course['price']
+        price_text = f"{price:,.0f}".replace(",", " ")
 
-@dp.message_handler(Text(equals="🆓 Bepul darslar"))
-async def free_lessons(message: types.Message):
-    """Bepul darslar"""
+        text2 = f"""
+📚 <b>{course['name']}</b>
 
-    # Bepul darslarni olish
-    result = user_db.execute(
-        """SELECT l.id, l.name, m.name as module_name, c.name as course_name
-           FROM Lessons l
-           JOIN Modules m ON l.module_id = m.id
-           JOIN Courses c ON m.course_id = c.id
-           WHERE l.is_free = TRUE AND l.is_active = TRUE 
-               AND m.is_active = TRUE AND c.is_active = TRUE
-           ORDER BY c.order_num, m.order_num, l.order_num""",
-        fetchall=True
-    )
+💰 Kurs narxi: <b>{price_text} so'm</b>
 
-    if not result:
-        text = """
-🆓 <b>Bepul darslar</b>
-
-📭 Hozircha bepul darslar yo'q.
+Kursni sotib oling:
 """
-        await message.answer(text, reply_markup=main_menu())
-        return
+        await message.answer(text2, reply_markup=after_demo_registered())
+    else:
+        # Bepul kurs yoki narx yo'q - darslarni boshlash
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("➡️ Kursni boshlash", callback_data="user:start_course"))
 
-    lessons = []
-    for row in result:
-        lessons.append({
-            'id': row[0],
-            'name': row[1],
-            'module_name': row[2],
-            'course_name': row[3]
-        })
-
-    text = f"""
-🆓 <b>Bepul darslar</b>
-
-{len(lessons)} ta bepul dars mavjud.
-
-⬇️ Darsni tanlang:
-"""
-
-    from keyboards.inline.user_keyboards import free_lessons_list
-    await message.answer(text, reply_markup=free_lessons_list(lessons))
+        await message.answer("Kursni boshlashingiz mumkin:", reply_markup=kb)
 
 
 # ============================================================
-#                    KURS SOTIB OLISH
+#                    4. KURSNI BOSHLASH / TO'LOV
 # ============================================================
 
-@dp.message_handler(Text(equals="🛒 Kurs sotib olish"))
-async def buy_course(message: types.Message):
-    """Kurs sotib olish"""
-    telegram_id = message.from_user.id
-    user_id = user_db.get_user_id(telegram_id)
-
-    # Barcha faol kurslar
-    courses = user_db.get_all_courses(active_only=True)
-
-    if not courses:
-        text = """
-🛒 <b>Kurs sotib olish</b>
-
-📭 Hozircha sotuvda kurslar yo'q.
-"""
-        await message.answer(text, reply_markup=main_menu())
-        return
-
-    # Har bir kurs uchun dostup tekshirish
-    courses_with_access = []
-    for course in courses:
-        has_access = user_db.has_course_access(user_id, course['id']) if user_id else False
-        courses_with_access.append({
-            **course,
-            'has_access': has_access
-        })
-
-    text = f"""
-🛒 <b>Kurs sotib olish</b>
-
-{len(courses)} ta kurs mavjud.
-
-✅ - Sizda mavjud
-🔒 - Sotib olish mumkin
-
-⬇️ Kursni tanlang:
-"""
-
-    await message.answer(text, reply_markup=courses_list(courses_with_access, user_id))
-
-
-# ============================================================
-#                    NATIJALARIM
-# ============================================================
-
-@dp.message_handler(Text(equals="📊 Natijalarim"))
-async def my_results(message: types.Message):
-    """Natijalarim"""
-    telegram_id = message.from_user.id
+@dp.callback_query_handler(text="user:start_course")
+async def start_course(call: types.CallbackQuery):
+    """
+    Kursni boshlash - 1-darsni ko'rsatish
+    """
+    telegram_id = call.from_user.id
     user = user_db.get_user(telegram_id)
 
     if not user:
-        await message.answer("❌ Avval ro'yxatdan o'ting: /start")
+        await call.answer("❌ Avval ro'yxatdan o'ting", show_alert=True)
         return
 
     user_id = user['id']
 
-    # Umumiy statistika
-    total_score = user.get('total_score', 0)
+    # Darslar ro'yxatini ko'rsatish
+    await show_lessons_list_callback(call, user_id)
 
-    # Test natijalari
-    test_results = user_db.execute(
-        """SELECT COUNT(*), SUM(CASE WHEN passed = 1 THEN 1 ELSE 0 END)
-           FROM TestResults WHERE user_id = ?""",
-        parameters=(user_id,),
-        fetchone=True
-    )
-    total_tests = test_results[0] if test_results else 0
-    passed_tests = test_results[1] if test_results and test_results[1] else 0
 
-    # Tugatilgan darslar
-    completed_lessons = user_db.execute(
-        """SELECT COUNT(*) FROM UserProgress 
-           WHERE user_id = ? AND status = 'completed'""",
-        parameters=(user_id,),
-        fetchone=True
-    )
-    completed_count = completed_lessons[0] if completed_lessons else 0
+@dp.callback_query_handler(text="user:buy")
+async def buy_course(call: types.CallbackQuery, state: FSMContext):
+    """
+    Kursni sotib olish - to'lov ma'lumotlari
+    """
+    telegram_id = call.from_user.id
+    user = user_db.get_user(telegram_id)
 
-    # Sertifikatlar
-    certificates = user_db.execute(
-        """SELECT COUNT(*) FROM Certificates WHERE user_id = ?""",
-        parameters=(user_id,),
-        fetchone=True
-    )
-    cert_count = certificates[0] if certificates else 0
+    if not user or not user.get('phone'):
+        await call.message.edit_text(
+            "📝 Avval ro'yxatdan o'ting:",
+            reply_markup=after_demo_not_registered()
+        )
+        await call.answer()
+        return
+
+    course = get_main_course()
+
+    if not course:
+        await call.answer("❌ Kurs topilmadi", show_alert=True)
+        return
+
+    # To'lov ma'lumotlari
+    price = course.get('price', 0)
+    price_text = f"{price:,.0f}".replace(",", " ")
+
+    # TODO: Config dan olish
+    card_number = "8600 1234 5678 9012"
+    card_holder = "ALIYEV ALI"
 
     text = f"""
-📊 <b>Mening natijalarim</b>
+💳 <b>To'lov</b>
 
-👤 {user.get('full_name', 'Foydalanuvchi')}
+📚 Kurs: {course['name']}
+💰 Narxi: <b>{price_text} so'm</b>
 
-🏆 <b>Umumiy statistika:</b>
-├ ⭐️ Jami ball: <b>{total_score}</b>
-├ 📹 Tugatilgan darslar: <b>{completed_count}</b>
-├ 📝 Yechilgan testlar: <b>{total_tests}</b>
-├ ✅ Muvaffaqiyatli: <b>{passed_tests}</b>
-└ 🎓 Sertifikatlar: <b>{cert_count}</b>
+━━━━━━━━━━━━━━━━━━━━
 
-⬇️ Batafsil ko'rish uchun tanlang:
+💳 Karta raqami:
+<code>{card_number}</code>
+
+👤 Egasi: {card_holder}
+
+━━━━━━━━━━━━━━━━━━━━
+
+✅ To'lovni amalga oshiring va chekni yuboring.
 """
 
-    from keyboards.inline.user_keyboards import my_results_menu
-    await message.answer(text, reply_markup=my_results_menu())
-
-
-# ============================================================
-#                    YORDAM
-# ============================================================
-
-@dp.message_handler(Text(equals="❓ Yordam"))
-async def help_menu(message: types.Message):
-    """Yordam"""
-    text = """
-❓ <b>Yordam</b>
-
-📚 <b>Qanday ishlaydi?</b>
-1. Kursni sotib oling yoki bepul darslarni ko'ring
-2. Video darslarni ko'ring
-3. Testlarni yeching
-4. Fikr qoldiring
-5. Sertifikat oling
-
-💰 <b>To'lov qanday amalga oshiriladi?</b>
-• Kursni tanlang
-• Karta ma'lumotlariga pul o'tkazing
-• Chekni yuboring
-• Admin tasdiqlaydi
-
-📝 <b>Testlar haqida:</b>
-• Har bir darsda test bo'lishi mumkin
-• Test topshirmasangiz keyingi darsga o'ta olmaysiz
-• Qayta topshirish mumkin
-
-🎓 <b>Sertifikat:</b>
-• Kursni tugatgandan so'ng sertifikat olasiz
-• Sertifikat darajasi ballingizga bog'liq
-
-⬇️ Qo'shimcha yordam:
-"""
-
-    from keyboards.inline.user_keyboards import help_menu as help_kb
-    await message.answer(text, reply_markup=help_kb())
-
-
-# ============================================================
-#                    CALLBACK: CLOSE
-# ============================================================
-
-@dp.callback_query_handler(text="user:close")
-async def callback_close(call: types.CallbackQuery, state: FSMContext):
-    """Xabarni o'chirish"""
-    await state.finish()
-    await call.message.delete()
+    await call.message.edit_text(text, reply_markup=payment_info())
+    await state.update_data(course_id=course['id'])
     await call.answer()
 
 
-@dp.callback_query_handler(text="user:main")
-async def callback_main_menu(call: types.CallbackQuery, state: FSMContext):
-    """Bosh menyuga qaytish (inline)"""
+@dp.callback_query_handler(text="user:send_receipt")
+async def send_receipt_start(call: types.CallbackQuery, state: FSMContext):
+    """
+    Chek yuborishni boshlash
+    """
+    await call.message.edit_text(
+        "📸 To'lov chekining <b>rasmini</b> yuboring:"
+    )
+
+    await PaymentStates.receipt.set()
+    await call.answer()
+
+
+@dp.message_handler(state=PaymentStates.receipt, content_types=['photo'])
+async def receive_receipt_photo(message: types.Message, state: FSMContext):
+    """
+    Chek rasmini qabul qilish
+    """
+    data = await state.get_data()
+    course_id = data.get('course_id')
+
+    user = user_db.get_user(message.from_user.id)
+    user_id = user['id']
+
+    # Rasm ID
+    photo = message.photo[-1]
+    file_id = photo.file_id
+
+    # Bazaga saqlash
+    course = get_main_course()
+    amount = course.get('price', 0) if course else 0
+
+    user_db.execute(
+        """INSERT INTO Payments (user_id, course_id, amount, receipt_file_id, status, created_at)
+           VALUES (?, ?, ?, ?, 'pending', datetime('now'))""",
+        parameters=(user_id, course_id, amount, file_id),
+        commit=True
+    )
+
+    # Oxirgi payment ID
+    payment = user_db.execute(
+        "SELECT id FROM Payments WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        parameters=(user_id,),
+        fetchone=True
+    )
+    payment_id = payment[0] if payment else None
+
     await state.finish()
 
+    # Adminga xabar
+    await notify_admin_new_payment(user, course_id, file_id, payment_id)
+
+    text = """
+✅ <b>Chek qabul qilindi!</b>
+
+⏳ Admin tekshirmoqda...
+
+Tasdiqlangandan so'ng xabar beramiz.
+"""
+
+    await message.answer(text, reply_markup=payment_pending())
+
+
+@dp.message_handler(state=PaymentStates.receipt)
+async def receipt_invalid(message: types.Message):
+    """
+    Chek rasm emas
+    """
+    await message.answer("❌ Iltimos, chek <b>rasmini</b> yuboring!")
+
+
+@dp.callback_query_handler(text="user:check_payment")
+async def check_payment(call: types.CallbackQuery):
+    """
+    To'lov statusini tekshirish
+    """
     user = user_db.get_user(call.from_user.id)
 
-    text = f"""
-👋 <b>{user.get('full_name', 'Foydalanuvchi') if user else 'Foydalanuvchi'}</b>
+    if not user:
+        await call.answer("❌ Xatolik", show_alert=True)
+        return
 
-📚 Quyidagi menyudan tanlang:
+    payment = user_db.execute(
+        "SELECT status FROM Payments WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        parameters=(user['id'],),
+        fetchone=True
+    )
+
+    if not payment:
+        await call.answer("❌ To'lov topilmadi", show_alert=True)
+        return
+
+    status = payment[0]
+
+    if status == 'approved':
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("➡️ Kursni boshlash", callback_data="user:start_course"))
+
+        await call.message.edit_text(
+            "✅ <b>To'lov tasdiqlandi!</b>\n\n"
+            "Endi darslarni boshlashingiz mumkin:",
+            reply_markup=kb
+        )
+    elif status == 'rejected':
+        await call.message.edit_text(
+            "❌ <b>To'lov rad etildi</b>\n\n"
+            "Qaytadan urinib ko'ring:",
+            reply_markup=after_demo_registered()
+        )
+    else:
+        await call.answer("⏳ Hali tekshirilmoqda...", show_alert=True)
+
+
+# ============================================================
+#                    DARSLAR RO'YXATI
+# ============================================================
+
+@dp.callback_query_handler(text="user:lessons")
+async def show_lessons_callback(call: types.CallbackQuery):
+    """
+    Darslar ro'yxatini ko'rsatish (callback)
+    """
+    user = user_db.get_user(call.from_user.id)
+
+    if not user:
+        await call.answer("❌ Xatolik", show_alert=True)
+        return
+
+    await show_lessons_list_callback(call, user['id'])
+
+
+async def show_lessons_list(message: types.Message, user_id: int):
+    """
+    Darslar ro'yxatini ko'rsatish (message)
+    """
+    lessons = get_all_lessons_with_status(user_id)
+
+    if not lessons:
+        await message.answer("📭 Darslar topilmadi")
+        return
+
+    completed = sum(1 for l in lessons if l['status'] == 'completed')
+    total = len(lessons)
+
+    text = f"""
+📚 <b>Darslar</b>
+
+📊 Progress: {completed}/{total}
 """
 
-    await call.message.edit_text(text, reply_markup=main_menu_inline())
+    await message.answer(text, reply_markup=simple_lessons_list(lessons))
+
+
+async def show_lessons_list_callback(call: types.CallbackQuery, user_id: int):
+    """
+    Darslar ro'yxatini ko'rsatish (callback)
+    """
+    lessons = get_all_lessons_with_status(user_id)
+
+    if not lessons:
+        await call.message.edit_text("📭 Darslar topilmadi")
+        await call.answer()
+        return
+
+    completed = sum(1 for l in lessons if l['status'] == 'completed')
+    total = len(lessons)
+
+    text = f"""
+📚 <b>Darslar</b>
+
+📊 Progress: {completed}/{total}
+"""
+
+    await call.message.edit_text(text, reply_markup=simple_lessons_list(lessons))
     await call.answer()
+
+
+# ============================================================
+#                    YOPIQ DARS
+# ============================================================
+
+@dp.callback_query_handler(text_startswith="user:locked:")
+async def locked_lesson(call: types.CallbackQuery):
+    """
+    Yopiq dars bosilganda
+    """
+    await call.answer(
+        "🔒 Bu dars yopiq!\n\nAvvalgi darsni yakunlang.",
+        show_alert=True
+    )
+
+
+# ============================================================
+#                    BEKOR QILISH
+# ============================================================
+
+@dp.callback_query_handler(text="user:cancel", state="*")
+async def cancel_callback(call: types.CallbackQuery, state: FSMContext):
+    """
+    Bekor qilish
+    """
+    await state.finish()
+
+    await call.message.edit_text(
+        "❌ Bekor qilindi\n\n"
+        "Qaytadan boshlash uchun /start buyrug'ini yuboring."
+    )
+    await call.answer()
+
+
+@dp.message_handler(Text(equals="❌ Bekor qilish"), state="*")
+async def cancel_message(message: types.Message, state: FSMContext):
+    """
+    Bekor qilish (message)
+    """
+    await state.finish()
+    await message.answer(
+        "❌ Bekor qilindi",
+        reply_markup=remove_keyboard()
+    )
+
+
+# ============================================================
+#                    YORDAMCHI FUNKSIYALAR
+# ============================================================
+
+def get_main_course():
+    """
+    Asosiy kursni olish
+    """
+    result = user_db.execute(
+        """SELECT id, name, description, price
+           FROM Courses WHERE is_active = TRUE
+           ORDER BY order_num LIMIT 1""",
+        fetchone=True
+    )
+
+    if result:
+        return {
+            'id': result[0],
+            'name': result[1],
+            'description': result[2],
+            'price': result[3]
+        }
+    return None
+
+
+def check_has_paid_course(user_id: int) -> bool:
+    """
+    To'lov qilganmi?
+    """
+    # Payments tekshirish
+    result = user_db.execute(
+        "SELECT 1 FROM Payments WHERE user_id = ? AND status = 'approved' LIMIT 1",
+        parameters=(user_id,),
+        fetchone=True
+    )
+    if result:
+        return True
+
+    # ManualAccess tekshirish
+    result = user_db.execute(
+        """SELECT 1 FROM ManualAccess WHERE user_id = ? 
+           AND (expires_at IS NULL OR expires_at > datetime('now')) LIMIT 1""",
+        parameters=(user_id,),
+        fetchone=True
+    )
+    return bool(result)
+
+
+def get_all_lessons_with_status(user_id: int) -> list:
+    """
+    Barcha darslarni status bilan olish
+    Modul ko'rinmaydi - ketma-ket darslar
+    """
+    lessons = user_db.execute(
+        """SELECT l.id, l.name
+           FROM Lessons l
+           JOIN Modules m ON l.module_id = m.id
+           JOIN Courses c ON m.course_id = c.id
+           WHERE l.is_active = TRUE AND m.is_active = TRUE AND c.is_active = TRUE
+           ORDER BY c.order_num, m.order_num, l.order_num""",
+        fetchall=True
+    )
+
+    if not lessons:
+        return []
+
+    # User progress
+    progress = user_db.execute(
+        "SELECT lesson_id, status FROM UserProgress WHERE user_id = ?",
+        parameters=(user_id,),
+        fetchall=True
+    )
+    progress_dict = {p[0]: p[1] for p in progress} if progress else {}
+
+    result = []
+    order = 0
+    prev_completed = True
+
+    for lesson in lessons:
+        order += 1
+        lesson_id = lesson[0]
+        name = lesson[1]
+
+        user_status = progress_dict.get(lesson_id)
+
+        if user_status == 'completed':
+            status = 'completed'
+            prev_completed = True
+        elif prev_completed:
+            status = 'unlocked'
+            prev_completed = False
+        else:
+            status = 'locked'
+
+        result.append({
+            'id': lesson_id,
+            'order_num': order,
+            'name': name,
+            'status': status
+        })
+
+    return result
+
+
+async def notify_admin_new_payment(user: dict, course_id: int, file_id: str, payment_id: int):
+    """
+    Adminga yangi to'lov haqida xabar
+    """
+    from data.config import ADMINS
+    from loader import bot
+
+    course = user_db.execute(
+        "SELECT name, price FROM Courses WHERE id = ?",
+        parameters=(course_id,),
+        fetchone=True
+    )
+
+    course_name = course[0] if course else "Noma'lum"
+    price = course[1] if course else 0
+    price_text = f"{price:,.0f}".replace(",", " ")
+
+    text = f"""
+💰 <b>Yangi to'lov!</b>
+
+👤 Ism: {user.get('full_name', 'Nomalum')}
+📱 Tel: {user.get('phone', 'Nomalum')}
+🆔 @{user.get('username') or 'yoq'}
+
+📚 Kurs: {course_name}
+💵 Summa: {price_text} so'm
+"""
+
+    # Admin keyboard
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"admin:payment:approve:{payment_id}"),
+        InlineKeyboardButton("❌ Rad etish", callback_data=f"admin:payment:reject:{payment_id}")
+    )
+
+    for admin_id in ADMINS:
+        try:
+            await bot.send_photo(admin_id, file_id, caption=text, reply_markup=kb)
+        except Exception as e:
+            print(f"Admin {admin_id} ga xabar yuborishda xato: {e}")

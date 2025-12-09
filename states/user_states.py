@@ -74,3 +74,28 @@ class ProfileStates(StatesGroup):
 
     edit_name = State()  # Ismni tahrirlash
     edit_phone = State()  # Telefonni tahrirlash
+
+
+"""
+User States
+===========
+Foydalanuvchi uchun FSM state'lar
+"""
+
+from aiogram.dispatcher.filters.state import State, StatesGroup
+
+
+class RegistrationStates(StatesGroup):
+    """Ro'yxatdan o'tish"""
+    full_name = State()  # Ism kiritish
+    phone = State()      # Telefon raqam
+
+
+class PaymentStates(StatesGroup):
+    """To'lov"""
+    receipt = State()    # Chek yuborish
+
+
+class TestStates(StatesGroup):
+    """Test yechish"""
+    in_progress = State()  # Test jarayonida
