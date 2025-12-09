@@ -6,13 +6,15 @@ Kurslarni ko'rish va sotib olish handlerlari
 
 from aiogram import types
 from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Text
 
 from loader import dp, bot, user_db
 from keyboards.inline.user_keyboards import (
     courses_list,
     course_detail,
     modules_list,
-    payment_methods
+    payment_methods,
+    back_button
 )
 from keyboards.default.user_keyboards import main_menu
 from states.user_states import PurchaseStates
@@ -37,7 +39,7 @@ async def show_all_courses(call: types.CallbackQuery):
     # Har bir kurs uchun dostup tekshirish
     courses_with_access = []
     for course in courses:
-        has_access = user_db.has_course_access(user_id, course['id']) if user_id else False
+        has_access = user_db.has_course_access(telegram_id, course['id'])
         courses_with_access.append({
             **course,
             'has_access': has_access
@@ -54,7 +56,7 @@ async def show_all_courses(call: types.CallbackQuery):
 ⬇️ Kursni tanlang:
 """
 
-    await call.message.edit_text(text, reply_markup=courses_list(courses_with_access, user_id))
+    await call.message.edit_text(text, reply_markup=courses_list(courses_with_access, telegram_id))
     await call.answer()
 
 
@@ -72,7 +74,6 @@ async def show_course_detail(call: types.CallbackQuery):
         course_id = int(parts[3])
 
         telegram_id = call.from_user.id
-        user_id = user_db.get_user_id(telegram_id)
 
         course = user_db.get_course(course_id)
 
@@ -80,8 +81,8 @@ async def show_course_detail(call: types.CallbackQuery):
             await call.answer("❌ Kurs topilmadi!", show_alert=True)
             return
 
-        # Dostup tekshirish
-        has_access = user_db.has_course_access(user_id, course_id) if user_id else False
+        # Dostup tekshirish (telegram_id bilan)
+        has_access = user_db.has_course_access(telegram_id, course_id)
 
         # Kurs statistikasi
         stats = user_db.get_course_stats(course_id)
@@ -98,8 +99,8 @@ async def show_course_detail(call: types.CallbackQuery):
 
         # User progress (agar dostup bo'lsa)
         progress_text = ""
-        if has_access and user_id:
-            progress = user_db.get_user_course_progress(user_id, course_id)
+        if has_access:
+            progress = user_db.get_user_course_progress(telegram_id,course_id)
             if progress:
                 progress_text = f"\n\n📈 <b>Sizning progressingiz:</b> {progress.get('percentage', 0):.0f}%"
 
@@ -141,7 +142,7 @@ async def show_course_modules(call: types.CallbackQuery):
     course_id = int(call.data.split(":")[-1])
 
     telegram_id = call.from_user.id
-    user_id = user_db.get_user_id(telegram_id)
+    telegram_id = call.from_user.id
 
     course = user_db.get_course(course_id)
 
@@ -149,8 +150,8 @@ async def show_course_modules(call: types.CallbackQuery):
         await call.answer("❌ Kurs topilmadi!", show_alert=True)
         return
 
-    # Dostup tekshirish
-    has_access = user_db.has_course_access(user_id, course_id) if user_id else False
+    # Dostup tekshirish (telegram_id bilan)
+    has_access = user_db.has_course_access(telegram_id, course_id)
 
     if not has_access:
         await call.answer("🔒 Avval kursni sotib oling!", show_alert=True)
@@ -171,7 +172,7 @@ async def show_course_modules(call: types.CallbackQuery):
         total = len(lessons)
 
         for lesson in lessons:
-            status = user_db.get_lesson_status(user_id, lesson['id'])
+            status = user_db.get_lesson_status(telegram_id, lesson['id'])
             if status == 'completed':
                 completed += 1
 
@@ -220,8 +221,8 @@ async def buy_course_start(call: types.CallbackQuery, state: FSMContext):
         await call.answer("❌ Kurs topilmadi!", show_alert=True)
         return
 
-    # Dostup tekshirish
-    if user_db.has_course_access(user_id, course_id):
+    # Dostup tekshirish (telegram_id bilan)
+    if user_db.has_course_access(telegram_id, course_id):
         await call.answer("✅ Sizda bu kurs allaqachon mavjud!", show_alert=True)
         return
 
@@ -290,7 +291,7 @@ To'lovni amalga oshirgandan so'ng, chek rasmini yuboring.
 
     await call.message.edit_text(text)
 
-    from keyboards.inline.user_keyboards import cancel_button
+    from keyboards.default.user_keyboards import cancel_button
     await call.message.answer("📸 Chek rasmini yuboring:", reply_markup=cancel_button())
 
     await PurchaseStates.send_receipt.set()
@@ -306,13 +307,12 @@ async def receive_receipt(message: types.Message, state: FSMContext):
     course_id = data['course_id']
 
     telegram_id = message.from_user.id
-    user_id = user_db.get_user_id(telegram_id)
 
     course = user_db.get_course(course_id)
 
-    # To'lovni yaratish
+    # To'lovni yaratish (telegram_id bilan)
     payment_id = user_db.create_payment(
-        user_id=user_id,
+        telegram_id=telegram_id,
         course_id=course_id,
         amount=course['price'],
         receipt_file_id=photo.file_id

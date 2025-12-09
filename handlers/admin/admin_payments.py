@@ -153,8 +153,8 @@ async def view_payment(call: types.CallbackQuery):
         return
 
     # payment tuple:
-    # 0-id, 1-user_id, 2-course_id, 3-amount, 4-status, 5-receipt_file_id
-    # 6-admin_note, 7-created_at, 8-approved_at, 9-approved_by
+    # 0-id, 1-user_id, 2-course_id, 3-amount, 4-receipt_file_id, 5-status
+    # 6-admin_id, 7-admin_note, 8-created_at, 9-updated_at
     # 10-full_name, 11-phone, 12-telegram_id, 13-username, 14-course_name
 
     status_map = {
@@ -163,7 +163,7 @@ async def view_payment(call: types.CallbackQuery):
         'rejected': '❌ Rad etilgan'
     }
 
-    status_text = status_map.get(payment[4], payment[4])
+    status_text = status_map.get(payment[5], payment[5])
 
     text = f"""
 💰 <b>To'lov #{payment[0]}</b>
@@ -179,25 +179,25 @@ async def view_payment(call: types.CallbackQuery):
 📚 <b>Kurs:</b> {payment[14]}
 💵 <b>Summa:</b> {payment[3]:,.0f} so'm
 
-📅 <b>Yuborilgan:</b> {payment[7][:16] if payment[7] else 'Nomalum'}
+📅 <b>Yuborilgan:</b> {payment[8][:16] if payment[8] else 'Nomalum'}
 """
 
-    if payment[4] == 'approved':
-        text += f"\n✅ <b>Tasdiqlangan:</b> {payment[8][:16] if payment[8] else ''}"
-    elif payment[4] == 'rejected' and payment[6]:
-        text += f"\n❌ <b>Sabab:</b> {payment[6]}"
+    if payment[5] == 'approved':
+        text += f"\n✅ <b>Tasdiqlangan:</b> {payment[9][:16] if payment[9] else ''}"
+    elif payment[5] == 'rejected' and payment[7]:
+        text += f"\n❌ <b>Sabab:</b> {payment[7]}"
 
     keyboard = types.InlineKeyboardMarkup(row_width=2)
 
     # Chekni ko'rish
-    if payment[5]:
+    if payment[4]:
         keyboard.add(types.InlineKeyboardButton(
             "🧾 Chekni ko'rish",
             callback_data=f"admin:payment:receipt:{payment_id}"
         ))
 
     # Agar kutilayotgan bo'lsa
-    if payment[4] == 'pending':
+    if payment[5] == 'pending':
         keyboard.add(
             types.InlineKeyboardButton(
                 "✅ Tasdiqlash",
@@ -214,7 +214,17 @@ async def view_payment(call: types.CallbackQuery):
         callback_data="admin:payments:pending"
     ))
 
-    await call.message.edit_text(text, reply_markup=keyboard)
+    # Agar xabar rasm bo'lsa, o'chirib yangi yuboramiz
+    try:
+        await call.message.edit_text(text, reply_markup=keyboard)
+    except:
+        # Rasm xabarini o'chirib, yangi text yuboramiz
+        try:
+            await call.message.delete()
+        except:
+            pass
+        await bot.send_message(call.from_user.id, text, reply_markup=keyboard)
+
     await call.answer()
 
 
@@ -287,7 +297,8 @@ async def approve_payment(call: types.CallbackQuery):
     payment_id = int(call.data.split(":")[-1])
 
     payment = user_db.execute(
-        """SELECT p.*, u.telegram_id, c.name as course_name
+        """SELECT p.id, p.user_id, p.course_id, p.amount, p.receipt_file_id,
+                  p.status, u.telegram_id, c.name as course_name
            FROM Payments p
            JOIN Users u ON p.user_id = u.id
            JOIN Courses c ON p.course_id = c.id
@@ -300,22 +311,19 @@ async def approve_payment(call: types.CallbackQuery):
         await call.answer("❌ To'lov topilmadi!", show_alert=True)
         return
 
-    if payment[4] != 'pending':
+    # payment: 0-id, 1-user_id, 2-course_id, 3-amount, 4-receipt_file_id,
+    #          5-status, 6-telegram_id, 7-course_name
+
+    if payment[5] != 'pending':
         await call.answer("⚠️ Bu to'lov allaqachon ko'rib chiqilgan!", show_alert=True)
         return
 
     # To'lovni tasdiqlash
-    admin_id = user_db.get_admin_id(call.from_user.id)
+    result = user_db.approve_payment(payment_id, call.from_user.id)
 
-    user_db.execute(
-        """UPDATE Payments 
-           SET status = 'approved', approved_at = datetime('now'), approved_by = ?
-           WHERE id = ?""",
-        parameters=(admin_id, payment_id)
-    )
-
-    # Kursga dostup berish
-    user_db.give_course_access(payment[1], payment[2])  # user_id, course_id
+    if not result:
+        await call.answer("❌ Xatolik yuz berdi!", show_alert=True)
+        return
 
     await call.answer("✅ To'lov tasdiqlandi!", show_alert=True)
 
@@ -324,22 +332,34 @@ async def approve_payment(call: types.CallbackQuery):
         user_text = f"""
 🎉 <b>To'lovingiz tasdiqlandi!</b>
 
-📚 Kurs: {payment[11]}
+📚 Kurs: {payment[7]}
 💰 Summa: {payment[3]:,.0f} so'm
 
 Endi kursni boshlashingiz mumkin!
 "📚 Mening kurslarim" bo'limiga kiring.
 """
-        await bot.send_message(payment[10], user_text)  # telegram_id
+        await bot.send_message(payment[6], user_text)  # telegram_id
     except Exception as e:
         print(f"Foydalanuvchiga xabar yuborib bo'lmadi: {e}")
 
     # Sahifani yangilash
-    await call.message.edit_text(
-        f"✅ <b>To'lov #{payment_id} tasdiqlandi!</b>\n\n"
-        f"Foydalanuvchiga dostup berildi.",
-        reply_markup=back_button("admin:payments:pending")
-    )
+    try:
+        await call.message.edit_text(
+            f"✅ <b>To'lov #{payment_id} tasdiqlandi!</b>\n\n"
+            f"Foydalanuvchiga dostup berildi.",
+            reply_markup=back_button("admin:payments:pending")
+        )
+    except:
+        try:
+            await call.message.delete()
+        except:
+            pass
+        await bot.send_message(
+            call.from_user.id,
+            f"✅ <b>To'lov #{payment_id} tasdiqlandi!</b>\n\n"
+            f"Foydalanuvchiga dostup berildi.",
+            reply_markup=back_button("admin:payments:pending")
+        )
 
 
 # ============================================================
@@ -347,9 +367,13 @@ Endi kursni boshlashingiz mumkin!
 # ============================================================
 
 @dp.callback_query_handler(text_startswith="admin:payment:reject:")
-@admin_required
 async def reject_payment_start(call: types.CallbackQuery, state: FSMContext):
     """To'lovni rad etish - sabab so'rash"""
+    # Admin tekshirish
+    if not user_db.is_admin(call.from_user.id):
+        await call.answer("⛔️ Sizda admin huquqi yo'q!", show_alert=True)
+        return
+
     payment_id = int(call.data.split(":")[-1])
 
     payment = user_db.execute(
@@ -368,11 +392,23 @@ async def reject_payment_start(call: types.CallbackQuery, state: FSMContext):
 
     await state.update_data(payment_id=payment_id)
 
-    await call.message.edit_text(
-        f"❌ <b>To'lovni rad etish</b>\n\n"
-        f"To'lov: #{payment_id}\n\n"
-        f"📝 Rad etish sababini kiriting:"
-    )
+    try:
+        await call.message.edit_text(
+            f"❌ <b>To'lovni rad etish</b>\n\n"
+            f"To'lov: #{payment_id}\n\n"
+            f"📝 Rad etish sababini kiriting:"
+        )
+    except:
+        try:
+            await call.message.delete()
+        except:
+            pass
+        await bot.send_message(
+            call.from_user.id,
+            f"❌ <b>To'lovni rad etish</b>\n\n"
+            f"To'lov: #{payment_id}\n\n"
+            f"📝 Rad etish sababini kiriting:"
+        )
 
     await call.message.answer(
         "✍️ Sababni yozing:",
@@ -416,14 +452,7 @@ async def reject_payment_reason(message: types.Message, state: FSMContext):
         return
 
     # To'lovni rad etish
-    admin_id = user_db.get_admin_id(message.from_user.id)
-
-    user_db.execute(
-        """UPDATE Payments 
-           SET status = 'rejected', admin_note = ?, approved_at = datetime('now'), approved_by = ?
-           WHERE id = ?""",
-        parameters=(reason, admin_id, payment_id)
-    )
+    result = user_db.reject_payment(payment_id, message.from_user.id, reason)
 
     await state.finish()
 

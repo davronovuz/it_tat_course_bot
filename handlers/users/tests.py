@@ -6,10 +6,12 @@ Test yechish handlerlari
 
 from aiogram import types
 from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Text
+from aiogram.utils.exceptions import BadRequest
 import json
 from datetime import datetime
 
-from loader import dp, user_db
+from loader import dp, bot, user_db
 from keyboards.inline.user_keyboards import (
     test_start,
     test_question,
@@ -18,6 +20,35 @@ from keyboards.inline.user_keyboards import (
 )
 from keyboards.default.user_keyboards import main_menu
 from states.user_states import TestStates
+
+
+# ============================================================
+#      XABARNI XAVFSIZ TAHRIRLASH HELPERI (edit_text/ caption)
+# ============================================================
+
+async def safe_edit_message(message: types.Message, text: str, reply_markup=None):
+    """
+    Xabar text bo'lsa -> edit_text
+    Video/photo/document bo'lsa -> edit_caption
+    Agar baribir xato bo'lsa -> yangi xabar yuboradi
+    """
+    try:
+        # Oddiy matn xabarmi?
+        if message.text is not None:
+            return await message.edit_text(text, reply_markup=reply_markup)
+
+        # Captionli media bo'lsa
+        if message.caption is not None or message.content_type in (
+            'video', 'photo', 'document', 'animation'
+        ):
+            return await message.edit_caption(text, reply_markup=reply_markup)
+
+        # Noma'lum holatda ham urunib ko'ramiz
+        return await message.edit_text(text, reply_markup=reply_markup)
+
+    except BadRequest:
+        # Masalan: "There is no text in the message to edit"
+        return await bot.send_message(message.chat.id, text, reply_markup=reply_markup)
 
 
 # ============================================================
@@ -46,8 +77,8 @@ async def start_test(call: types.CallbackQuery, state: FSMContext):
 
     module = user_db.get_module(lesson['module_id'])
 
-    # Dostup tekshirish
-    has_access = user_db.has_course_access(user_id, module['course_id']) if user_id else False
+    # ❗️ DOSTUP TEKSHIRISH – bu yerda TELEGRAM_ID ishlatamiz
+    has_access = user_db.has_course_access(telegram_id, module['course_id']) if user_id else False
 
     if not lesson['is_free'] and not has_access:
         await call.answer("🔒 Testni yechish uchun kursni sotib oling!", show_alert=True)
@@ -87,7 +118,7 @@ async def start_test(call: types.CallbackQuery, state: FSMContext):
 ⬇️ Boshlash uchun tugmani bosing:
 """
 
-    await call.message.edit_text(text, reply_markup=test_start(lesson_id))
+    await safe_edit_message(call.message, text, reply_markup=test_start(lesson_id))
     await call.answer()
 
 
@@ -113,6 +144,8 @@ async def begin_test(call: types.CallbackQuery, state: FSMContext):
 
 async def show_question(message: types.Message, state: FSMContext, index: int):
     """Savolni ko'rsatish"""
+    import html
+
     data = await state.get_data()
     questions = data['questions']
 
@@ -124,29 +157,33 @@ async def show_question(message: types.Message, state: FSMContext, index: int):
     question = questions[index]
     await state.update_data(current_index=index)
 
-    # Javob variantlari
+    # Javob variantlari (database 'a', 'b', 'c', 'd' qaytaradi)
     options = []
-    options.append(('A', question['option_a']))
-    options.append(('B', question['option_b']))
-    if question.get('option_c'):
-        options.append(('C', question['option_c']))
-    if question.get('option_d'):
-        options.append(('D', question['option_d']))
+    options.append(('A', question['a']))
+    options.append(('B', question['b']))
+    if question.get('c'):
+        options.append(('C', question['c']))
+    if question.get('d'):
+        options.append(('D', question['d']))
 
-    # Savol matni
+    # Savol matni - HTML maxsus belgilarni escape qilish
+    question_text = html.escape(question['question'])
+
     text = f"""
 📝 <b>Savol {index + 1}/{len(questions)}</b>
 
-❓ {question['question_text']}
+❓ {question_text}
 
 """
 
     for letter, option in options:
-        text += f"🔘 <b>{letter})</b> {option}\n"
+        escaped_option = html.escape(str(option))
+        text += f"🔘 <b>{letter})</b> {escaped_option}\n"
 
     text += f"\n⬇️ Javobni tanlang:"
 
-    await message.edit_text(
+    await safe_edit_message(
+        message,
         text,
         reply_markup=test_question(
             data['test_id'],
@@ -201,7 +238,7 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
     for i, question in enumerate(questions):
         user_answer = answers.get(str(i))
-        correct_answer = question['correct_answer']
+        correct_answer = question['correct']  # database 'correct' qaytaradi
 
         is_correct = user_answer == correct_answer
 
@@ -217,16 +254,14 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
     # Natijani bazaga saqlash
     telegram_id = message.chat.id
-    user_id = user_db.get_user_id(telegram_id)
 
     user_db.save_test_result(
-        user_id=user_id,
+        telegram_id=telegram_id,
         test_id=data['test_id'],
-        score=percentage,
-        correct_answers=correct_count,
+        score=int(percentage),
         total_questions=total_count,
-        passed=passed,
-        answers_json=json.dumps(answers)
+        correct_answers=correct_count,
+        answers=answers
     )
 
     # Ball qo'shish (agar o'tgan bo'lsa)
@@ -250,7 +285,7 @@ async def show_test_result(message: types.Message, state: FSMContext):
 ├ ✅ To'g'ri javoblar: {correct_count}/{total_count}
 ├ 📈 Foiz: {percentage:.1f}%
 ├ 🎯 O'tish bali: {passing_score}%
-└ {"✅ O'tdingiz' if passed else '❌ O'tmadingiz"}
+└ {'✅ Otdingiz' if passed else '❌ Otmadingiz'}
 
 {status_text}
 """
@@ -260,7 +295,8 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
     await state.finish()
 
-    await message.edit_text(
+    await safe_edit_message(
+        message,
         text,
         reply_markup=test_result(
             data['lesson_id'],
@@ -302,12 +338,12 @@ async def show_test_history(call: types.CallbackQuery):
         await call.answer("❌ Test topilmadi!", show_alert=True)
         return
 
-    # Barcha urinishlar
+    # Barcha urinishlar (completed_at ustuni)
     results = user_db.execute(
-        """SELECT score, correct_answers, passed, created_at 
+        """SELECT score, correct_answers, passed, completed_at 
            FROM TestResults 
            WHERE user_id = ? AND test_id = ?
-           ORDER BY created_at DESC
+           ORDER BY completed_at DESC
            LIMIT 10""",
         parameters=(user_id, test['id']),
         fetchall=True
@@ -329,10 +365,12 @@ async def show_test_history(call: types.CallbackQuery):
 
     for i, result in enumerate(results, 1):
         status = "✅" if result[2] else "❌"
-        date = result[3][:10] if result[3] else "Noma'lum"
-        text += f"\n{i}. {status} {result[0]:.1f}% ({result[1]} to'g'ri) - {date}"
+        date = str(result[3])[:10] if result[3] else "Noma'lum"
+        score = result[0] if result[0] else 0
+        text += f"\n{i}. {status} {score}% ({result[1]} to'g'ri) - {date}"
 
-    await call.message.edit_text(
+    await safe_edit_message(
+        call.message,
         text,
         reply_markup=back_button(f"user:lesson:view:{lesson_id}")
     )
@@ -365,9 +403,10 @@ async def cancel_test(call: types.CallbackQuery, state: FSMContext):
 ⬇️ Qaytadan boshlash uchun tanlang:
 """
 
-        await call.message.edit_text(
+        await safe_edit_message(
+            call.message,
             text,
             reply_markup=test_start(lesson_id)
         )
     else:
-        await call.message.edit_text("❌ Test bekor qilindi")
+        await safe_edit_message(call.message, "❌ Test bekor qilindi")

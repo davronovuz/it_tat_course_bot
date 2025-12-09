@@ -7,7 +7,7 @@ to'liq database logikasi.
 Muallif: Davronov G'olibjon
 Sana: 2025
 """
-
+from data.config import ADMINS
 from .database import Database
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -503,10 +503,25 @@ class UserDatabase(Database):
     # ============================================================
 
     def is_admin(self, telegram_id: int) -> bool:
-        """Foydalanuvchi adminmi tekshirish"""
+        """
+        Foydalanuvchi adminmi tekshirish.
+        1) Avvalo config.ADMINS (super-adminlar) ichida telegram_id bormi tekshiradi.
+        2) Keyin users jadvalidan user_id olib, Admins jadvalidan tekshiradi.
+        """
+        # 1) super-adminlarni tekshirish (env orqali)
+        try:
+            # config.ADMINS ni list[int] yoki set[int] deb kutamiz
+            if telegram_id in ADMINS:
+                return True
+        except Exception:
+            # agar config.ADMINS noto'g'ri formatda bo'lsa, xatolikni yutib davom etish
+            pass
+
+        # 2) odatiy DB-adminni tekshirish
         user_id = self.get_user_id(telegram_id)
         if not user_id:
             return False
+
         result = self.execute(
             "SELECT 1 FROM Admins WHERE user_id = ?",
             parameters=(user_id,),

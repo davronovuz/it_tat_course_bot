@@ -183,7 +183,8 @@ def lesson_view(
         has_materials: bool = False,
         has_test: bool = False,
         is_completed: bool = False,
-        has_access: bool = True
+        has_access: bool = True,
+        next_lesson_id: int = None
 ) -> InlineKeyboardMarkup:
     """Darsni ko'rish"""
     keyboard = InlineKeyboardMarkup(row_width=2)
@@ -209,18 +210,18 @@ def lesson_view(
             callback_data=f"user:test:start:{lesson_id}"
         ))
 
-    # Tugatish (agar dostup bo'lsa va tugallanmagan bo'lsa)
-    if has_access and not is_completed:
-        keyboard.add(InlineKeyboardButton(
-            "✅ Darsni tugatish",
-            callback_data=f"user:complete:{lesson_id}"
-        ))
-
     # Fikr qoldirish
     if has_access:
         keyboard.add(InlineKeyboardButton(
             "💬 Fikr qoldirish",
             callback_data=f"user:feedback:{lesson_id}"
+        ))
+
+    # Keyingi dars (faqat tugallangan bo'lsa)
+    if is_completed and next_lesson_id:
+        keyboard.add(InlineKeyboardButton(
+            "⏭ Keyingi dars",
+            callback_data=f"user:next_lesson:{next_lesson_id}"
         ))
 
     keyboard.add(InlineKeyboardButton(
@@ -428,18 +429,19 @@ def test_question(test_id: int, question_index: int, options: List[str]) -> Inli
     return keyboard
 
 
-def test_result(lesson_id: int, passed: bool, can_retry: bool = True) -> InlineKeyboardMarkup:
+def test_result(lesson_id: int, passed: bool, can_retry: bool = True, next_lesson_id: int = None) -> InlineKeyboardMarkup:
     """Test natijasi"""
     keyboard = InlineKeyboardMarkup(row_width=1)
 
     if passed:
-        # O'tdi
-        keyboard.add(InlineKeyboardButton(
-            "✅ Darsni tugatish",
-            callback_data=f"user:complete:{lesson_id}"
-        ))
+        # O'tdi - keyingi darsga o'tish
+        if next_lesson_id:
+            keyboard.add(InlineKeyboardButton(
+                "⏭ Keyingi dars",
+                callback_data=f"user:next_lesson:{next_lesson_id}"
+            ))
     else:
-        # O'tmadi
+        # O'tmadi - qayta topshirish
         if can_retry:
             keyboard.add(InlineKeyboardButton(
                 "🔄 Qayta topshirish",
@@ -457,8 +459,6 @@ def test_result(lesson_id: int, passed: bool, can_retry: bool = True) -> InlineK
     ))
 
     return keyboard
-
-
 # ============================================================
 #                    FIKR
 # ============================================================
@@ -768,4 +768,27 @@ def pagination(
 
     keyboard.row(*buttons)
 
+    return keyboard
+
+
+def cancel_button(callback_data: str = "user:cancel") -> InlineKeyboardMarkup:
+    """Bekor qilish tugmasi"""
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("❌ Bekor qilish", callback_data=callback_data))
+    return keyboard
+
+
+def payment_cancel_button(course_id: int = None) -> InlineKeyboardMarkup:
+    """To'lovni bekor qilish tugmasi"""
+    keyboard = InlineKeyboardMarkup()
+    if course_id:
+        keyboard.add(InlineKeyboardButton(
+            "❌ Bekor qilish",
+            callback_data=f"user:payment:cancel:{course_id}"
+        ))
+    else:
+        keyboard.add(InlineKeyboardButton(
+            "❌ Bekor qilish",
+            callback_data="user:cancel"
+        ))
     return keyboard

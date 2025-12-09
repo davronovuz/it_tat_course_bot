@@ -8,8 +8,9 @@ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Command, Text
 
-from loader import dp, user_db
+from loader import dp, bot, user_db
 from keyboards.inline.admin_keyboards import (
+    admin_main_menu,
     courses_menu,
     users_menu,
     payments_menu,
@@ -18,7 +19,8 @@ from keyboards.inline.admin_keyboards import (
     settings_menu,
     broadcast_menu
 )
-from keyboards.inline.admin_keyboards import admin_main_menu as admin_reply_menu
+from keyboards.default.admin_keyboards import admin_main_menu as admin_reply_menu
+from states.admin_states import AdminMainState
 
 
 # ============================================================
@@ -27,8 +29,13 @@ from keyboards.inline.admin_keyboards import admin_main_menu as admin_reply_menu
 
 def admin_required(func):
     """Admin ekanligini tekshirish decorator"""
+    from functools import wraps
 
+    @wraps(func)
     async def wrapper(message_or_call, *args, **kwargs):
+        # state argumentini olib tashlaymiz agar funksiya qabul qilmasa
+        kwargs.pop('state', None)
+
         if isinstance(message_or_call, types.Message):
             telegram_id = message_or_call.from_user.id
         else:
@@ -233,7 +240,7 @@ async def back_to_main_menu(message: types.Message, state: FSMContext):
         await admin_panel_command(message, state)
     else:
         # User main menu (bu keyinroq qo'shiladi)
-        from keyboards.inline.user_keyboards import main_menu
+        from keyboards.default.user_keyboards import main_menu
         await message.answer("🏠 Bosh menyu", reply_markup=main_menu())
 
 

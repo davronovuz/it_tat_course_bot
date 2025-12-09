@@ -6,6 +6,8 @@ Fikr qoldirish handlerlari
 
 from aiogram import types
 from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Text
+from aiogram.utils.exceptions import BadRequest
 
 from loader import dp, bot, user_db
 from keyboards.inline.user_keyboards import (
@@ -19,6 +21,35 @@ from states.user_states import FeedbackStates
 
 
 # ============================================================
+#                    XABARNI XAVFSIZ TAHRIRLASH HELPERI
+# ============================================================
+
+async def safe_edit_message(message: types.Message, text: str, reply_markup=None):
+    """
+    Xabar text bo'lsa -> edit_text
+    Video/photo/document bo'lsa -> edit_caption
+    Agar baribir xato bo'lsa -> yangi xabar yuboradi
+    """
+    try:
+        # Oddiy matn xabarmi?
+        if message.text is not None:
+            return await message.edit_text(text, reply_markup=reply_markup)
+
+        # Captionli media (video, photo, document, ...)
+        if message.caption is not None or message.content_type in (
+            'video', 'photo', 'document', 'animation'
+        ):
+            return await message.edit_caption(text, reply_markup=reply_markup)
+
+        # Noma'lum holatlarda ham textni tahrirlab ko'ramiz
+        return await message.edit_text(text, reply_markup=reply_markup)
+
+    except BadRequest:
+        # Masalan: "There is no text in the message to edit"
+        return await bot.send_message(message.chat.id, text, reply_markup=reply_markup)
+
+
+# ============================================================
 #                    FIKR QOLDIRISH BOSHLASH
 # ============================================================
 
@@ -28,7 +59,6 @@ async def start_feedback(call: types.CallbackQuery, state: FSMContext):
     lesson_id = int(call.data.split(":")[-1])
 
     telegram_id = call.from_user.id
-    user_id = user_db.get_user_id(telegram_id)
 
     lesson = user_db.get_lesson(lesson_id)
 
@@ -36,8 +66,8 @@ async def start_feedback(call: types.CallbackQuery, state: FSMContext):
         await call.answer("❌ Dars topilmadi!", show_alert=True)
         return
 
-    # Allaqachon fikr qoldirganmi
-    if user_db.has_feedback(user_id, lesson_id):
+    # Allaqachon fikr qoldirganmi (telegram_id bilan TEKSHIRAMIZ)
+    if user_db.has_feedback(telegram_id, lesson_id):
         await call.answer("✅ Siz allaqachon fikr qoldirgansiz!", show_alert=True)
         return
 
@@ -62,7 +92,11 @@ async def start_feedback(call: types.CallbackQuery, state: FSMContext):
 ⬇️ Bahoni tanlang:
 """
 
-    await call.message.edit_text(text, reply_markup=feedback_rating(lesson_id))
+    await safe_edit_message(
+        call.message,
+        text,
+        reply_markup=feedback_rating(lesson_id)
+    )
     await FeedbackStates.rating.set()
     await call.answer()
 
@@ -94,8 +128,17 @@ async def select_rating(call: types.CallbackQuery, state: FSMContext):
 <i>Bu ixtiyoriy. O'tkazib yuborishingiz mumkin.</i>
 """
 
-    await call.message.edit_text(text, reply_markup=feedback_skip_comment(data['lesson_id']))
-    await call.message.answer("✍️ Izoh yozing yoki o'tkazib yuboring:", reply_markup=cancel_button())
+    await safe_edit_message(
+        call.message,
+        text,
+        reply_markup=feedback_skip_comment(data['lesson_id'])
+    )
+
+    await call.message.answer(
+        "✍️ Izoh yozing yoki o'tkazib yuboring:",
+        reply_markup=cancel_button()
+    )
+
     await FeedbackStates.comment.set()
     await call.answer()
 
@@ -120,7 +163,7 @@ async def write_comment(message: types.Message, state: FSMContext):
 
     await state.update_data(comment=comment)
 
-    # Fikrni saqlash
+    # Fikrni saqlash (bu yerda call.message bizda yo'q, shunchaki yangi xabar yuboramiz)
     await save_feedback(message.from_user.id, state)
 
 
@@ -129,7 +172,7 @@ async def skip_comment(call: types.CallbackQuery, state: FSMContext):
     """Izohni o'tkazib yuborish"""
     await state.update_data(comment=None)
 
-    # Fikrni saqlash
+    # Fikrni saqlash, callback kelgan xabarni ham uzatamiz
     await save_feedback(call.from_user.id, state, call.message)
     await call.answer()
 
@@ -142,24 +185,18 @@ async def save_feedback(telegram_id: int, state: FSMContext, message: types.Mess
     """Fikrni saqlash"""
     data = await state.get_data()
 
-    user_id = user_db.get_user_id(telegram_id)
-
-    # Fikr uchun ball
-    feedback_score = user_db.get_setting('feedback_score')
-    score_to_add = int(feedback_score) if feedback_score and feedback_score.isdigit() else 5
-
-    # Fikrni qo'shish
-    feedback_id = user_db.add_feedback(
-        user_id=user_id,
+    # Fikrni qo'shish (telegram_id bilan)
+    result = user_db.add_feedback(
+        telegram_id=telegram_id,
         lesson_id=data['lesson_id'],
         rating=data['rating'],
-        comment=data.get('comment'),
-        score_given=score_to_add
+        comment=data.get('comment')
     )
 
-    if feedback_id:
-        # Ball qo'shish
-        user_db.add_score(telegram_id, score_to_add)
+    if result:
+        # Ball sozlamadan olinadi
+        feedback_score = user_db.get_setting('feedback_score')
+        score_to_add = int(feedback_score) if feedback_score and feedback_score.isdigit() else 2
 
         stars = "⭐️" * data['rating']
 
@@ -174,16 +211,20 @@ async def save_feedback(telegram_id: int, state: FSMContext, message: types.Mess
 """
 
         if message:
-            await message.edit_text(text, reply_markup=feedback_thanks(data['lesson_id']))
+            # Eski edit_text o'rniga xavfsiz helper
+            await safe_edit_message(
+                message,
+                text,
+                reply_markup=feedback_thanks(data['lesson_id'])
+            )
         else:
-            # Handler message.answer orqali
             await bot.send_message(telegram_id, text, reply_markup=main_menu())
 
     else:
         text = "❌ Xatolik yuz berdi! Qaytadan urinib ko'ring."
 
         if message:
-            await message.edit_text(text)
+            await safe_edit_message(message, text)
         else:
             await bot.send_message(telegram_id, text, reply_markup=main_menu())
 
@@ -205,8 +246,10 @@ async def show_lesson_feedbacks(call: types.CallbackQuery):
         await call.answer("❌ Dars topilmadi!", show_alert=True)
         return
 
-    # Fikrlarni olish
-    feedbacks = user_db.get_lesson_feedbacks(lesson_id, limit=10)
+    # Fikrlarni olish (funksiya faqat lesson_id qabul qiladi)
+    feedbacks = user_db.get_lesson_feedbacks(lesson_id)
+    # Oxirgi 10 tasini olamiz
+    feedbacks = feedbacks[:10]
     avg_rating = user_db.get_lesson_average_rating(lesson_id)
 
     if not feedbacks:
@@ -234,7 +277,8 @@ async def show_lesson_feedbacks(call: types.CallbackQuery):
             text += f"\n<i>{fb['comment'][:100]}{'...' if len(fb.get('comment', '')) > 100 else ''}</i>"
         text += f"\n<code>{date}</code>\n"
 
-    await call.message.edit_text(
+    await safe_edit_message(
+        call.message,
         text,
         reply_markup=back_button(f"user:lesson:view:{lesson_id}")
     )

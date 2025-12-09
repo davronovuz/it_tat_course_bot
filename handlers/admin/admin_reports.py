@@ -110,6 +110,10 @@ async def show_general_report(call: types.CallbackQuery):
         fetchone=True
     )
 
+    # Qiymatlarni oldindan hisoblash
+    payments_sum = total_payments[1] if total_payments and total_payments[1] else 0
+    feedbacks_avg = total_feedbacks[1] if total_feedbacks and total_feedbacks[1] else 0
+
     text = f"""
 📊 <b>Umumiy hisobot</b>
 
@@ -125,7 +129,7 @@ async def show_general_report(call: types.CallbackQuery):
 
 💰 <b>To'lovlar:</b>
 ├ Tasdiqlangan: <b>{total_payments[0] if total_payments else 0}</b>
-├ Summa: <b>{total_payments[1]:,.0f if total_payments and total_payments[1] else 0}</b> so'm
+├ Summa: <b>{payments_sum:,.0f}</b> so'm
 └ Kutilayotgan: <b>{pending_payments[0] if pending_payments else 0}</b>
 
 📝 <b>Testlar:</b>
@@ -134,7 +138,7 @@ async def show_general_report(call: types.CallbackQuery):
 
 💬 <b>Fikrlar:</b>
 ├ Jami: <b>{total_feedbacks[0] if total_feedbacks else 0}</b>
-└ O'rtacha: <b>{total_feedbacks[1]:.1f if total_feedbacks and total_feedbacks[1] else 0}</b> ⭐️
+└ O'rtacha: <b>{feedbacks_avg:.1f}</b> ⭐️
 """
 
     await call.message.edit_text(text, reply_markup=back_button("admin:reports"))
@@ -161,10 +165,10 @@ async def show_users_report(call: types.CallbackQuery):
         )
         daily_stats.append((date[5:], count[0] if count else 0))
 
-    # Faol foydalanuvchilar (oxirgi 7 kunda)
+    # Faol foydalanuvchilar (oxirgi 7 kunda) — last_active ustunidan
     week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
     active_users = user_db.execute(
-        "SELECT COUNT(*) FROM Users WHERE DATE(last_activity) >= ?",
+        "SELECT COUNT(*) FROM Users WHERE DATE(last_active) >= ?",
         parameters=(week_ago,),
         fetchone=True
     )
@@ -191,7 +195,7 @@ async def show_users_report(call: types.CallbackQuery):
         fetchall=True
     )
 
-    text = f"""
+    text = """
 👥 <b>Foydalanuvchilar hisoboti</b>
 
 📈 <b>So'nggi 7 kun:</b>
@@ -201,14 +205,18 @@ async def show_users_report(call: types.CallbackQuery):
         bar = "▓" * min(count, 10) + "░" * (10 - min(count, 10))
         text += f"{date}: [{bar}] {count}\n"
 
-    free_users = (total_users[0] if total_users else 0) - (paid_users[0] if paid_users else 0)
+    total_count = total_users[0] if total_users else 0
+    paid_count = paid_users[0] if paid_users else 0
+    free_users = total_count - paid_count
+    active_count = active_users[0] if active_users else 0
+    avg_score_val = avg_score[0] if avg_score and avg_score[0] else 0
 
     text += f"""
 📊 <b>Statistika:</b>
-├ Faol (7 kun): <b>{active_users[0] if active_users else 0}</b>
-├ Pullik: <b>{paid_users[0] if paid_users else 0}</b>
+├ Faol (7 kun): <b>{active_count}</b>
+├ Pullik: <b>{paid_count}</b>
 ├ Bepul: <b>{free_users}</b>
-└ O'rtacha ball: <b>{avg_score[0]:.0f if avg_score and avg_score[0] else 0}</b>
+└ O'rtacha ball: <b>{avg_score_val:.0f}</b>
 
 🏆 <b>Top foydalanuvchilar:</b>
 """
@@ -229,13 +237,13 @@ async def show_users_report(call: types.CallbackQuery):
 async def show_finance_report(call: types.CallbackQuery):
     """Moliyaviy hisobot"""
 
-    # Kunlik daromad (so'nggi 7 kun)
+    # Kunlik daromad (so'nggi 7 kun) — updated_at ustunidan
     daily_income = []
     for i in range(6, -1, -1):
         date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
         income = user_db.execute(
             """SELECT SUM(amount) FROM Payments 
-               WHERE status = 'approved' AND DATE(approved_at) = ?""",
+               WHERE status = 'approved' AND DATE(updated_at) = ?""",
             parameters=(date,),
             fetchone=True
         )
@@ -245,7 +253,7 @@ async def show_finance_report(call: types.CallbackQuery):
     week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
     week_income = user_db.execute(
         """SELECT SUM(amount), COUNT(*) FROM Payments 
-           WHERE status = 'approved' AND DATE(approved_at) >= ?""",
+           WHERE status = 'approved' AND DATE(updated_at) >= ?""",
         parameters=(week_ago,),
         fetchone=True
     )
@@ -254,7 +262,7 @@ async def show_finance_report(call: types.CallbackQuery):
     month_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
     month_income = user_db.execute(
         """SELECT SUM(amount), COUNT(*) FROM Payments 
-           WHERE status = 'approved' AND DATE(approved_at) >= ?""",
+           WHERE status = 'approved' AND DATE(updated_at) >= ?""",
         parameters=(month_ago,),
         fetchone=True
     )
@@ -283,30 +291,45 @@ async def show_finance_report(call: types.CallbackQuery):
         fetchall=True
     )
 
-    text = f"""
+    text = """
 💰 <b>Moliyaviy hisobot</b>
 
 📈 <b>So'nggi 7 kun:</b>
 """
 
     max_income = max([x[1] for x in daily_income]) if daily_income else 1
+    if max_income == 0:
+        max_income = 1
+
     for date, income in daily_income:
-        bar_len = int((income / max_income) * 10) if max_income > 0 else 0
+        bar_len = int((income / max_income) * 10)
         bar = "▓" * bar_len + "░" * (10 - bar_len)
         text += f"{date}: [{bar}] {income:,.0f}\n"
 
+    # Qiymatlarni oldindan hisoblash
+    week_sum = week_income[0] if week_income and week_income[0] else 0
+    week_count = week_income[1] if week_income and week_income[1] else 0
+    month_sum = month_income[0] if month_income and month_income[0] else 0
+    month_count = month_income[1] if month_income and month_income[1] else 0
+    total_sum = total_income[0] if total_income and total_income[0] else 0
+    avg_check_val = avg_check[0] if avg_check and avg_check[0] else 0
+
     text += f"""
 📊 <b>Daromadlar:</b>
-├ Shu hafta: <b>{week_income[0]:,.0f if week_income and week_income[0] else 0}</b> so'm ({week_income[1] if week_income else 0} ta)
-├ Shu oy: <b>{month_income[0]:,.0f if month_income and month_income[0] else 0}</b> so'm ({month_income[1] if month_income else 0} ta)
-├ Jami: <b>{total_income[0]:,.0f if total_income and total_income[0] else 0}</b> so'm
-└ O'rtacha chek: <b>{avg_check[0]:,.0f if avg_check and avg_check[0] else 0}</b> so'm
+├ Shu hafta: <b>{week_sum:,.0f}</b> so'm ({week_count} ta)
+├ Shu oy: <b>{month_sum:,.0f}</b> so'm ({month_count} ta)
+├ Jami: <b>{total_sum:,.0f}</b> so'm
+└ O'rtacha chek: <b>{avg_check_val:,.0f}</b> so'm
 
 📚 <b>Kurslar bo'yicha:</b>
 """
 
     for c in (by_course or []):
-        text += f"• {c[0]}: {c[2]:,.0f} so'm ({c[1]} ta)\n"
+        course_sum = c[2] if c[2] else 0
+        text += f"• {c[0]}: {course_sum:,.0f} so'm ({c[1]} ta)\n"
+
+    if not by_course:
+        text += "📭 To'lovlar yo'q\n"
 
     await call.message.edit_text(text, reply_markup=back_button("admin:reports"))
     await call.answer()
@@ -338,13 +361,14 @@ async def show_courses_report(call: types.CallbackQuery):
         fetchall=True
     )
 
-    text = f"""
+    text = """
 📚 <b>Kurslar hisoboti</b>
 
 """
 
     for c in (courses or []):
         income = c[5] if c[5] else 0
+        students = c[4] if c[4] else 0
 
         # Tugatish foizi
         completed = user_db.execute(
@@ -364,13 +388,13 @@ async def show_courses_report(call: types.CallbackQuery):
         )
 
         completed_count = len(completed) if completed else 0
-        completion_rate = (completed_count / c[4] * 100) if c[4] else 0
+        completion_rate = (completed_count / students * 100) if students > 0 else 0
 
         text += f"""
 📚 <b>{c[1]}</b>
 ├ 📁 Modullar: {c[2]}
 ├ 📹 Darslar: {c[3]}
-├ 👥 O'quvchilar: {c[4]}
+├ 👥 O'quvchilar: {students}
 ├ 💰 Daromad: {income:,.0f} so'm
 └ ✅ Tugatgan: {completed_count} ({completion_rate:.0f}%)
 
