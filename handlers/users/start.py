@@ -80,12 +80,12 @@ async def show_demo_lesson(call: types.CallbackQuery):
     """
     # Bepul darsni olish (admin is_free=True qilgan)
     demo = user_db.execute(
-        """SELECT l.id, l.name, l.description, l.video_url, l.video_file_id
+        """SELECT l.id, l.name, l.description, l.video_file_id
            FROM Lessons l
            JOIN Modules m ON l.module_id = m.id
            JOIN Courses c ON m.course_id = c.id
-           WHERE l.is_free = TRUE AND l.is_active = TRUE 
-               AND m.is_active = TRUE AND c.is_active = TRUE
+           WHERE l.is_free = 1 AND l.is_active = 1 
+               AND m.is_active = 1 AND c.is_active = 1
            ORDER BY c.order_num, m.order_num, l.order_num
            LIMIT 1""",
         fetchone=True
@@ -95,7 +95,7 @@ async def show_demo_lesson(call: types.CallbackQuery):
         await call.answer("❌ Demo dars topilmadi", show_alert=True)
         return
 
-    lesson_id, name, description, video_url, video_file_id = demo
+    lesson_id, name, description, video_file_id = demo
 
     # Dars haqida matn
     caption = f"""
@@ -105,13 +105,17 @@ async def show_demo_lesson(call: types.CallbackQuery):
 """
 
     # Avvalgi xabarni o'chirish
-    await call.message.delete()
+    try:
+        await call.message.delete()
+    except:
+        pass
 
     # Video yuborish
     if video_file_id:
-        await call.message.answer_video(video_file_id, caption=caption)
-    elif video_url:
-        await call.message.answer_video(video_url, caption=caption)
+        try:
+            await call.message.answer_video(video_file_id, caption=caption)
+        except Exception as e:
+            await call.message.answer(f"{caption}\n\n⚠️ Video yuklanmadi")
     else:
         # Video yo'q - faqat matn
         await call.message.answer(caption)
@@ -704,7 +708,7 @@ async def notify_admin_new_payment(user: dict, course_id: int, file_id: str, pay
     text = f"""
 💰 <b>Yangi to'lov!</b>
 
-👤 Ism: {user.get('full_name', 'Nomalum')}
+👤 Ism: {user.get('full_name', "Nomalum")}
 📱 Tel: {user.get('phone', 'Nomalum')}
 🆔 @{user.get('username') or 'yoq'}
 
