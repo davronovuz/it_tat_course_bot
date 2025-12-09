@@ -11,9 +11,8 @@ Tartib: kichik handlerlar yuqorida, katta (muhim) handlerlar pastda
 # from . import channel_subscription    # Kanal obuna
 
 # O'rtacha handlerlar
-from . import feedback                # Fikr qoldirish
-from . import progress                # Natijalar, sertifikatlar
-from . import payments                # To'lovlar tarixi
+
+
 from . import tests                   # Test yechish
 
 # Katta/asosiy handlerlar
