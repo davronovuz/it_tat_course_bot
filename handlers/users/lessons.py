@@ -54,11 +54,14 @@ async def show_lessons_list(call: types.CallbackQuery):
 📊 Progress: {completed}/{total}
 """
 
+    # Avvalgi xabarni o'chirish
     try:
-        await call.message.edit_text(text, reply_markup=simple_lessons_list(lessons))
-    except:
         await call.message.delete()
-        await call.message.answer(text, reply_markup=simple_lessons_list(lessons))
+    except:
+        pass
+
+    # Yangi xabar yuborish
+    await call.message.answer(text, reply_markup=simple_lessons_list(lessons))
 
     await call.answer()
 
@@ -124,31 +127,24 @@ async def view_lesson(call: types.CallbackQuery):
     if status == 'completed':
         text += "\n✅ <i>Tugallangan</i>"
 
+    # Avvalgi xabarni o'chirish
     try:
-        await call.message.edit_text(
-            text,
-            reply_markup=lesson_view(
-                lesson_id=lesson_id,
-                has_video=has_video,
-                has_materials=materials_count > 0,
-                has_test=has_test,
-                is_completed=(status == 'completed'),
-                next_lesson_id=next_lesson['id'] if next_lesson else None
-            )
-        )
-    except:
         await call.message.delete()
-        await call.message.answer(
-            text,
-            reply_markup=lesson_view(
-                lesson_id=lesson_id,
-                has_video=has_video,
-                has_materials=materials_count > 0,
-                has_test=has_test,
-                is_completed=(status == 'completed'),
-                next_lesson_id=next_lesson['id'] if next_lesson else None
-            )
+    except:
+        pass
+
+    # Yangi xabar yuborish
+    await call.message.answer(
+        text,
+        reply_markup=lesson_view(
+            lesson_id=lesson_id,
+            has_video=has_video,
+            has_materials=materials_count > 0,
+            has_test=has_test,
+            is_completed=(status == 'completed'),
+            next_lesson_id=next_lesson['id'] if next_lesson else None
         )
+    )
 
     await call.answer()
 
