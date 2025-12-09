@@ -7,8 +7,7 @@ Tartib: kichik handlerlar yuqorida, katta (muhim) handlerlar pastda
 """
 
 # Kichik/yordamchi handlerlar
-from . import help                    # Yordam
-from . import reklama                 # Reklama
+
 # from . import channel_subscription    # Kanal obuna
 
 # O'rtacha handlerlar
