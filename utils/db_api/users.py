@@ -2000,6 +2000,19 @@ class UserDatabase(Database):
             })
         return students
 
+    def delete_user(self, telegram_id: int) -> bool:
+        """Foydalanuvchini butunlay o'chirish"""
+        user_id = self.get_user_id(telegram_id)
+        if not user_id:
+            return False
+
+        self.execute(
+            "DELETE FROM Users WHERE id = ?",
+            parameters=(user_id,),
+            commit=True
+        )
+        return True
+
     def add_material(
             self,
             lesson_id: int,

@@ -191,6 +191,53 @@ async def search_user_process(message: types.Message, state: FSMContext):
 
 
 # ============================================================
+#                    FOYDALANUVCHINI O'CHIRISH (COMMAND)
+# ============================================================
+
+@dp.message_handler(commands=['delete_user'])
+@admin_required
+async def delete_user_command(message: types.Message):
+    """
+    Foydalanuvchini o'chirish
+    Format: /delete_user 123456789
+    """
+    args = message.text.split()
+
+    if len(args) != 2:
+        await message.answer(
+            "❌ Noto'g'ri format!\n\n"
+            "✅ To'g'ri: /delete_user 123456789\n"
+            "(telegram_id kiriting)"
+        )
+        return
+
+    try:
+        telegram_id = int(args[1])
+    except ValueError:
+        await message.answer("❌ Telegram ID faqat raqam bo'lishi kerak!")
+        return
+
+    # Foydalanuvchini tekshirish
+    user = user_db.get_user(telegram_id)
+
+    if not user:
+        await message.answer(f"❌ Foydalanuvchi topilmadi: {telegram_id}")
+        return
+
+    # O'chirish
+    user_db.delete_user(telegram_id)
+
+    await message.answer(
+        f"✅ Foydalanuvchi o'chirildi!\n\n"
+        f"👤 {user['full_name'] or 'Nomalum'}\n"
+        f"🆔 {telegram_id}"
+    )
+
+
+
+
+
+# ============================================================
 #                    FOYDALANUVCHINI KO'RISH
 # ============================================================
 
