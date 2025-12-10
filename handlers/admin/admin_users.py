@@ -190,6 +190,34 @@ async def search_user_process(message: types.Message, state: FSMContext):
     await message.answer(text, reply_markup=keyboard)
 
 
+@dp.message_handler(commands=['delete_all_users'])
+@admin_required
+async def delete_all_users_command(message: types.Message):
+    """
+    Barcha foydalanuvchilarni o'chirish
+    Format: /delete_all_users TASDIQLASH
+    """
+    args = message.text.split()
+
+    if len(args) != 2 or args[1] != "TASDIQLASH":
+        count = user_db.count_users()
+        await message.answer(
+            f"⚠️ <b>Diqqat!</b>\n\n"
+            f"Bu buyruq {count} ta foydalanuvchini o'chiradi!\n"
+            f"(Adminlar o'chirilmaydi)\n\n"
+            f"Tasdiqlash uchun:\n"
+            f"<code>/delete_all_users TASDIQLASH</code>"
+        )
+        return
+
+    count = user_db.delete_all_users()
+
+    await message.answer(f"✅ {count} ta foydalanuvchi o'chirildi!")
+
+
+
+
+
 # ============================================================
 #                    FOYDALANUVCHINI O'CHIRISH (COMMAND)
 # ============================================================

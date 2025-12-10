@@ -2013,6 +2013,22 @@ class UserDatabase(Database):
         )
         return True
 
+    def delete_all_users(self) -> int:
+        """Barcha foydalanuvchilarni o'chirish (adminlardan tashqari)"""
+        # Avval sonini olish
+        result = self.execute(
+            "SELECT COUNT(*) FROM Users WHERE id NOT IN (SELECT user_id FROM Admins)",
+            fetchone=True
+        )
+        count = result[0] if result else 0
+
+        # O'chirish
+        self.execute(
+            "DELETE FROM Users WHERE id NOT IN (SELECT user_id FROM Admins)",
+            commit=True
+        )
+        return count
+
     def add_material(
             self,
             lesson_id: int,
