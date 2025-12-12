@@ -73,11 +73,10 @@ async def cmd_start(message: types.Message, state: FSMContext):
 # ============================================================
 #                    2. DEMO DARS
 # ============================================================
-
 @dp.callback_query_handler(text="user:demo")
 async def show_demo_lesson(call: types.CallbackQuery):
     """
-    Demo darsni ko'rsatish - video + tugma bitta xabarda
+    Demo darsni ko'rsatish - video + kurs info + tugma
     """
     demo = user_db.execute(
         """SELECT l.id, l.name, l.description, l.video_file_id
@@ -108,29 +107,42 @@ async def show_demo_lesson(call: types.CallbackQuery):
     except:
         pass
 
-    # Tugmani tayyorlash
+    # Video yuborish
+    if video_file_id:
+        try:
+            await call.message.answer_video(video_file_id, caption=caption)
+        except:
+            await call.message.answer(caption)
+    else:
+        await call.message.answer(caption)
+
+    # Kurs haqida ma'lumot
+    course_info = get_course_info()
     user = user_db.get_user(call.from_user.id)
 
     if user and user.get('phone'):
-        # Ro'yxatdan o'tgan - to'lovga
         keyboard = after_demo_registered()
     else:
-        # Ro'yxatdan o'tmagan
         keyboard = after_demo_not_registered()
 
-    # Video + tugma BITTA xabarda
-    if video_file_id:
-        try:
-            await call.message.answer_video(
-                video_file_id,
-                caption=caption,
-                reply_markup=keyboard
-            )
-        except:
-            await call.message.answer(caption, reply_markup=keyboard)
-    else:
-        await call.message.answer(caption, reply_markup=keyboard)
+    info_text = f"""
+📊 <b>Kurs haqida:</b>
 
+📚 Darslar soni: <b>{course_info['lessons_count']} ta</b>
+⏱ Umumiy davomiylik: <b>{course_info['total_duration']}</b>
+📹 O'rtacha 1 dars: <b>{course_info['avg_duration']}</b>
+
+👥 <b>Kimlar uchun:</b>
+Kompyuterni yangi o'rganayotganlar uchun
+
+✅ <b>Kurs nima beradi:</b>
+- Kompyuter bilan erkin ishlashni o'rganasiz
+- Windows operatsion tizimini o'zlashtirasiz
+- Ofis dasturlarini bilib olasiz
+- Sertifikat olasiz
+"""
+
+    await call.message.answer(info_text, reply_markup=keyboard)
     await call.answer()
 
 
@@ -299,7 +311,6 @@ async def start_course(call: types.CallbackQuery):
     # Darslar ro'yxatini ko'rsatish
     await show_lessons_list_callback(call, user_id)
 
-
 @dp.callback_query_handler(text="user:buy")
 async def buy_course(call: types.CallbackQuery, state: FSMContext):
     """
@@ -330,6 +341,9 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
     price = course.get('price', 0)
     price_text = f"{price:,.0f}".replace(",", " ")
 
+    # Kurs info
+    course_info = get_course_info()
+
     # TODO: Config dan olish
     card_number = "8600 1234 5678 9012"
     card_holder = "ALIYEV ALI"
@@ -339,6 +353,11 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
 
 📚 Kurs: {course['name']}
 💰 Narxi: <b>{price_text} so'm</b>
+
+📊 <b>Kurs tarkibi:</b>
+- {course_info['lessons_count']} ta video dars
+- Umumiy: {course_info['total_duration']}
+- O'rtacha 1 dars: {course_info['avg_duration']}
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -359,69 +378,6 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer(text, reply_markup=payment_info())
     await state.update_data(course_id=course['id'])
     await call.answer()
-
-
-@dp.callback_query_handler(text="user:send_receipt")
-async def send_receipt_start(call: types.CallbackQuery, state: FSMContext):
-    """
-    Chek yuborishni boshlash
-    """
-    await call.message.edit_text(
-        "📸 To'lov chekining <b>rasmini</b> yuboring:"
-    )
-
-    await PaymentStates.receipt.set()
-    await call.answer()
-
-
-@dp.message_handler(state=PaymentStates.receipt, content_types=['photo'])
-async def receive_receipt_photo(message: types.Message, state: FSMContext):
-    """
-    Chek rasmini qabul qilish
-    """
-    data = await state.get_data()
-    course_id = data.get('course_id')
-
-    user = user_db.get_user(message.from_user.id)
-    user_id = user['id']
-
-    # Rasm ID
-    photo = message.photo[-1]
-    file_id = photo.file_id
-
-    # Bazaga saqlash
-    course = get_main_course()
-    amount = course.get('price', 0) if course else 0
-
-    user_db.execute(
-        """INSERT INTO Payments (user_id, course_id, amount, receipt_file_id, status, created_at)
-           VALUES (?, ?, ?, ?, 'pending', datetime('now'))""",
-        parameters=(user_id, course_id, amount, file_id),
-        commit=True
-    )
-
-    # Oxirgi payment ID
-    payment = user_db.execute(
-        "SELECT id FROM Payments WHERE user_id = ? ORDER BY id DESC LIMIT 1",
-        parameters=(user_id,),
-        fetchone=True
-    )
-    payment_id = payment[0] if payment else None
-
-    await state.finish()
-
-    # Adminga xabar
-    await notify_admin_new_payment(user, course_id, file_id, payment_id)
-
-    text = """
-✅ <b>Chek qabul qilindi!</b>
-
-⏳ Admin tekshirmoqda...
-
-Tasdiqlangandan so'ng xabar beramiz.
-"""
-
-    await message.answer(text, reply_markup=payment_pending())
 
 
 @dp.message_handler(state=PaymentStates.receipt)
@@ -729,3 +685,48 @@ async def notify_admin_new_payment(user: dict, course_id: int, file_id: str, pay
             await bot.send_photo(admin_id, file_id, caption=text, reply_markup=kb)
         except Exception as e:
             print(f"Admin {admin_id} ga xabar yuborishda xato: {e}")
+
+
+
+
+def get_course_info() -> dict:
+    """
+    Kurs haqida dinamik ma'lumotlar
+    """
+    # Darslar soni
+    lessons_count = user_db.execute(
+        """SELECT COUNT(*) FROM Lessons l
+           JOIN Modules m ON l.module_id = m.id
+           JOIN Courses c ON m.course_id = c.id
+           WHERE l.is_active = 1 AND m.is_active = 1 AND c.is_active = 1""",
+        fetchone=True
+    )
+
+    # Umumiy va o'rtacha davomiylik
+    duration_stats = user_db.execute(
+        """SELECT SUM(video_duration), AVG(video_duration) FROM Lessons l
+           JOIN Modules m ON l.module_id = m.id
+           JOIN Courses c ON m.course_id = c.id
+           WHERE l.is_active = 1 AND m.is_active = 1 AND c.is_active = 1
+           AND video_duration IS NOT NULL""",
+        fetchone=True
+    )
+
+    total_seconds = duration_stats[0] if duration_stats and duration_stats[0] else 0
+    avg_seconds = duration_stats[1] if duration_stats and duration_stats[1] else 0
+
+    # Sekundlarni formatlash
+    def format_duration(seconds):
+        if not seconds:
+            return "Noma'lum"
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        if hours > 0:
+            return f"{hours} soat {minutes} minut"
+        return f"{minutes} minut"
+
+    return {
+        'lessons_count': lessons_count[0] if lessons_count else 0,
+        'total_duration': format_duration(total_seconds),
+        'avg_duration': format_duration(avg_seconds)
+    }
