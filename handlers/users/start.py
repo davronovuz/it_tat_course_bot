@@ -77,9 +77,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
 @dp.callback_query_handler(text="user:demo")
 async def show_demo_lesson(call: types.CallbackQuery):
     """
-    Demo darsni ko'rsatish
+    Demo darsni ko'rsatish - video + tugma bitta xabarda
     """
-    # Bepul darsni olish (admin is_free=True qilgan)
     demo = user_db.execute(
         """SELECT l.id, l.name, l.description, l.video_file_id
            FROM Lessons l
@@ -98,9 +97,7 @@ async def show_demo_lesson(call: types.CallbackQuery):
 
     lesson_id, name, description, video_file_id = demo
 
-    # Dars haqida matn
-    caption = f"""
-📘 <b>Demo dars: {name}</b>
+    caption = f"""📘 <b>Demo dars: {name}</b>
 
 {description or "Bu darsda siz kompyuterning asosiy ishlashini ko'rasiz."}
 """
@@ -111,45 +108,33 @@ async def show_demo_lesson(call: types.CallbackQuery):
     except:
         pass
 
-    # Video yuborish
+    # Tugmani tayyorlash
+    user = user_db.get_user(call.from_user.id)
+
+    if user and user.get('phone'):
+        # Ro'yxatdan o'tgan - to'lovga
+        keyboard = after_demo_registered()
+    else:
+        # Ro'yxatdan o'tmagan
+        keyboard = after_demo_not_registered()
+
+    # Video + tugma BITTA xabarda
     if video_file_id:
         try:
-            await call.message.answer_video(video_file_id, caption=caption)
-        except Exception as e:
-            await call.message.answer(f"{caption}\n\n⚠️ Video yuklanmadi")
+            await call.message.answer_video(
+                video_file_id,
+                caption=caption,
+                reply_markup=keyboard
+            )
+        except:
+            await call.message.answer(caption, reply_markup=keyboard)
     else:
-        # Video yo'q - faqat matn
-        await call.message.answer(caption)
-
-    # Keyingi qadam - ro'yxatdan o'tish yoki to'lov
-    await show_after_demo(call.message, call.from_user.id)
+        await call.message.answer(caption, reply_markup=keyboard)
 
     await call.answer()
 
 
-async def show_after_demo(message: types.Message, telegram_id: int):
-    """
-    Demo ko'rgandan keyin keyingi tugma
-    """
-    user = user_db.get_user(telegram_id)
 
-    # Ro'yxatdan o'tganmi? (telefon bormi?)
-    if user and user.get('phone'):
-        # Ro'yxatdan o'tgan - to'lovga
-        text = """
-✅ Demo darsni ko'rdingiz!
-
-To'liq kursni olish uchun:
-"""
-        await message.answer(text, reply_markup=after_demo_registered())
-    else:
-        # Ro'yxatdan o'tmagan
-        text = """
-✅ Demo darsni ko'rdingiz!
-
-Davom etish uchun ro'yxatdan o'ting:
-"""
-        await message.answer(text, reply_markup=after_demo_not_registered())
 
 
 # ============================================================
