@@ -26,16 +26,11 @@ from states.admin_states import AdminMainState
 # ============================================================
 #                    ADMIN TEKSHIRISH DECORATOR
 # ============================================================
-
 def admin_required(func):
-    """Admin ekanligini tekshirish decorator"""
     from functools import wraps
 
     @wraps(func)
-    async def wrapper(message_or_call, *args, **kwargs):
-        # state argumentini olib tashlaymiz agar funksiya qabul qilmasa
-        kwargs.pop('state', None)
-
+    async def wrapper(message_or_call, state: FSMContext = None, **kwargs):
         if isinstance(message_or_call, types.Message):
             telegram_id = message_or_call.from_user.id
         else:
@@ -48,7 +43,10 @@ def admin_required(func):
                 await message_or_call.answer("⛔️ Sizda admin huquqi yo'q!", show_alert=True)
             return
 
-        return await func(message_or_call, *args, **kwargs)
+        if state is not None:
+            return await func(message_or_call, state=state, **kwargs)
+        else:
+            return await func(message_or_call, **kwargs)
 
     return wrapper
 
