@@ -58,14 +58,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
             return
 
     # Hammaga demo dars taklif qilinadi
-        # Hammaga demo dars taklif qilinadi
-        text = """
-    IT TAT markazining Online Kompyuter Savodxonlik Kursiga xush kelibsiz!
+    text = """
+IT TAT markazining Online Kompyuter Savodxonlik Kursiga xush kelibsiz!
 
-    Siz hozir o'zingizni rivojlantirish, yangi ko'nikmalar orttirish va kelajagingizga sarmoya qilish yo'lida birinchi va eng muhim qadamni tashladingiz.
+Siz hozir o'zingizni rivojlantirish, yangi ko'nikmalar orttirish va kelajagingizga sarmoya qilish yo'lida birinchi va eng muhim qadamni tashladingiz.
 
-    Avval bepul demo darsni ko'rib chiqing 👇
-    """
+Avval bepul demo darsni ko'rib chiqing 👇
+"""
 
     await message.answer(text, reply_markup=demo_lesson_button())
 
