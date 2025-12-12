@@ -380,6 +380,58 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
 
 
+@dp.callback_query_handler(text="user:send_receipt", state=PaymentStates.receipt)
+async def send_receipt_clicked(call: types.CallbackQuery):
+    """
+    To'ladim tugmasi bosildi
+    """
+    await call.message.answer("📸 Chek rasmini yuboring:")
+    await call.answer()
+
+
+@dp.message_handler(state=PaymentStates.receipt, content_types=['photo'])
+async def receive_payment_receipt(message: types.Message, state: FSMContext):
+    """
+    Chek rasmini qabul qilish
+    """
+    photo = message.photo[-1]
+
+    data = await state.get_data()
+    course_id = data.get('course_id')
+
+    user = user_db.get_user(message.from_user.id)
+    course = user_db.get_course(course_id)
+
+    # To'lov yaratish
+    payment_id = user_db.create_payment(
+        telegram_id=message.from_user.id,
+        course_id=course_id,
+        amount=course['price'],
+        receipt_file_id=photo.file_id
+    )
+
+    await state.finish()
+
+    if payment_id:
+        await message.answer(
+            f"✅ <b>Chek qabul qilindi!</b>\n\n"
+            f"🆔 To'lov ID: #{payment_id}\n"
+            f"⏳ Admin tekshirmoqda...",
+            reply_markup=payment_pending()
+        )
+        await notify_admin_new_payment(user, course_id, photo.file_id, payment_id)
+    else:
+        await message.answer("❌ Xatolik yuz berdi!")
+
+
+
+
+
+
+
+
+
+
 @dp.message_handler(state=PaymentStates.receipt)
 async def receipt_invalid(message: types.Message):
     """
