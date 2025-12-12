@@ -21,6 +21,28 @@ from handlers.admin.admin_start import admin_required
 #                    BROADCAST MENYUSI
 # ============================================================
 
+@dp.message_handler(Text(equals="📢 Reklama"))
+@admin_required
+async def broadcast_menu_message(message: types.Message):
+    total_users = user_db.execute("SELECT COUNT(*) FROM Users", fetchone=True)
+    paid_users = user_db.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM Payments WHERE status = 'approved'",
+        fetchone=True
+    )
+
+    total = total_users[0] if total_users else 0
+    paid = paid_users[0] if paid_users else 0
+
+    text = f"""
+📢 <b>Ommaviy xabar yuborish</b>
+
+👥 Jami: <b>{total}</b>
+💰 Pullik: <b>{paid}</b>
+🆓 Bepul: <b>{total - paid}</b>
+"""
+
+    await message.answer(text, reply_markup=broadcast_menu())
+
 @dp.callback_query_handler(text="admin:broadcast")
 @admin_required
 async def show_broadcast_menu(call: types.CallbackQuery):
