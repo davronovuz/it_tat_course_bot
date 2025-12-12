@@ -178,9 +178,11 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
     """
     Savolga javob berish
     """
+    import random
+
     parts = call.data.split(":")
     question_index = int(parts[2])
-    answer = parts[3]  # A, B, C, D
+    answer = parts[3]
 
     data = await state.get_data()
     questions = data['questions']
@@ -192,11 +194,27 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
     answers[str(question_index)] = answer
     await state.update_data(answers=answers)
 
-    # To'g'ri yoki noto'g'ri
+    # Motivatsion fikrlar
+    correct_messages = [
+        "✅ Xuddi shunday davom eting ! 🎉",
+        "✅ Barakalla! 💪",
+        "✅ Ajoyib! Davom eting! 🔥",
+        "✅ To'g'ri javob! 👏",
+        "✅ Zo'r! Siz uddalayapsiz! ⭐",
+    ]
+
+    wrong_messages = [
+        f"❌ Noto'g'ri!\nTo'g'ri javob: {correct}",
+        f"❌ Xato ketdi!\nJavob: {correct} edi",
+        f"❌ Afsuski noto'g'ri!\nTo'g'risi: {correct}",
+    ]
+
     if answer.upper() == correct:
-        await call.answer("✅ To'g'ri! 🎉", show_alert=False)
+        msg = random.choice(correct_messages)
     else:
-        await call.answer(f"❌ Noto'g'ri! Javob: {correct}", show_alert=True)
+        msg = random.choice(wrong_messages)
+
+    await call.answer(msg, show_alert=True)
 
     # Keyingi savol
     await show_question(call.message, state, question_index + 1)
