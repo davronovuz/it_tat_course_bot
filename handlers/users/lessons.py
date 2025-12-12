@@ -69,15 +69,12 @@ async def show_lessons_list(call: types.CallbackQuery):
 # ============================================================
 #                    DARS KO'RISH
 # ============================================================
-
 @dp.callback_query_handler(text_startswith="user:lesson:")
 async def view_lesson(call: types.CallbackQuery):
     """
-    Darsni ko'rish
+    Darsni ko'rish - BIRDAN VIDEO CHIQADI
     """
-    # lesson_id ni olish
-    parts = call.data.split(":")
-    lesson_id = int(parts[-1])
+    lesson_id = int(call.data.split(":")[-1])
 
     telegram_id = call.from_user.id
     user = user_db.get_user(telegram_id)
@@ -87,8 +84,6 @@ async def view_lesson(call: types.CallbackQuery):
         return
 
     user_id = user['id']
-
-    # Dars ma'lumotlari
     lesson = user_db.get_lesson(lesson_id)
 
     if not lesson:
@@ -102,51 +97,69 @@ async def view_lesson(call: types.CallbackQuery):
         await call.answer("🔒 Bu dars yopiq! Avvalgi darsni yakunlang.", show_alert=True)
         return
 
-    # Materiallar soni
-    materials_count = user_db.count_lesson_materials(lesson_id)
-
-    # Test bormi
-    has_test = lesson.get('has_test', False)
-
-    # Video bormi
-    has_video = bool(lesson.get('video_file_id') or lesson.get('video_url'))
-
-    # Keyingi dars
-    next_lesson = get_next_lesson(lesson_id)
-
-    # Dars haqida matn
-    description = lesson.get('description') or ""
-
-    text = f"""
-📹 <b>{lesson['name']}</b>
-
-{description}
-"""
-
-    # Status qo'shish
-    if status == 'completed':
-        text += "\n✅ <i>Tugallangan</i>"
-
-    # Avvalgi xabarni o'chirish
+    # Eski xabarni o'chirish
     try:
         await call.message.delete()
     except:
         pass
 
-    # Yangi xabar yuborish
-    await call.message.answer(
-        text,
-        reply_markup=lesson_view(
-            lesson_id=lesson_id,
-            has_video=has_video,
-            has_materials=materials_count > 0,
-            has_test=has_test,
-            is_completed=(status == 'completed'),
-            next_lesson_id=next_lesson['id'] if next_lesson else None
-        )
-    )
+    await call.answer("📹 Video yuborilmoqda...")
 
-    await call.answer()
+    # Video yuborish
+    video_file_id = lesson.get('video_file_id')
+    caption = f"📹 <b>{lesson['name']}</b>\n\n{lesson.get('description') or ''}"
+
+    if video_file_id:
+        try:
+            await bot.send_video(
+                telegram_id,
+                video_file_id,
+                caption=caption,
+                protect_content=True
+            )
+        except:
+            await bot.send_message(telegram_id, caption + "\n\n⚠️ Video yuklanmadi")
+    else:
+        await bot.send_message(telegram_id, caption)
+
+    # Keyingi tugmalar
+    has_test = lesson.get('has_test', False)
+    materials_count = user_db.count_lesson_materials(lesson_id)
+    next_lesson = get_next_lesson(lesson_id)
+
+    # Tugmalar
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+
+    if materials_count > 0:
+        keyboard.add(types.InlineKeyboardButton(
+            "📎 Materiallar",
+            callback_data=f"user:materials:{lesson_id}"
+        ))
+
+    if has_test:
+        keyboard.add(types.InlineKeyboardButton(
+            "📝 Test yechish",
+            callback_data=f"user:test:{lesson_id}"
+        ))
+    else:
+        # Test yo'q - darsni avtomatik tugatish
+        if status != 'completed':
+            complete_lesson_db(user_id, lesson_id)
+            user_db.add_score(telegram_id, 10)
+
+        if next_lesson:
+            keyboard.add(types.InlineKeyboardButton(
+                "⏭ Keyingi dars",
+                callback_data=f"user:lesson:{next_lesson['id']}"
+            ))
+
+    keyboard.add(types.InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data="user:lessons"
+    ))
+
+    await bot.send_message(telegram_id, "👇 Davom eting:", reply_markup=keyboard)
+
 
 
 # ============================================================

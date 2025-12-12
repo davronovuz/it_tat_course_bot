@@ -34,10 +34,6 @@ def after_demo_not_registered() -> InlineKeyboardMarkup:
         "📝 Ro'yxatdan o'tish",
         callback_data="user:register"
     ))
-    keyboard.add(InlineKeyboardButton(
-        "🔄 Qayta ko'rish",
-        callback_data="user:demo"
-    ))
     return keyboard
 
 
@@ -49,10 +45,6 @@ def after_demo_registered() -> InlineKeyboardMarkup:
     keyboard.add(InlineKeyboardButton(
         "💰 Kursni sotib olish",
         callback_data="user:buy"
-    ))
-    keyboard.add(InlineKeyboardButton(
-        "🔄 Qayta ko'rish",
-        callback_data="user:demo"
     ))
     return keyboard
 
