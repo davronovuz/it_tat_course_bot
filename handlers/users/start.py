@@ -146,7 +146,13 @@ async def start_registration(call: types.CallbackQuery, state: FSMContext):
     """
     Ro'yxatdan o'tishni boshlash - ism so'rash
     """
-    await call.message.edit_text(
+    # Video xabarni edit qilib bo'lmaydi, yangi xabar yuboramiz
+    try:
+        await call.message.delete()
+    except:
+        pass
+
+    await call.message.answer(
         "📝 Ismingizni yuboring:\n\n"
         "<i>Masalan: Aliyev Ali</i>"
     )
@@ -303,7 +309,11 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
     user = user_db.get_user(telegram_id)
 
     if not user or not user.get('phone'):
-        await call.message.edit_text(
+        try:
+            await call.message.delete()
+        except:
+            pass
+        await call.message.answer(
             "📝 Avval ro'yxatdan o'ting:",
             reply_markup=after_demo_not_registered()
         )
@@ -342,7 +352,11 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
 ✅ To'lovni amalga oshiring va chekni yuboring.
 """
 
-    await call.message.edit_text(text, reply_markup=payment_info())
+    try:
+        await call.message.delete()
+    except:
+        pass
+    await call.message.answer(text, reply_markup=payment_info())
     await state.update_data(course_id=course['id'])
     await call.answer()
 
