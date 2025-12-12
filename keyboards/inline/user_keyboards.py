@@ -378,3 +378,37 @@ def cancel_button() -> InlineKeyboardMarkup:
         callback_data="user:cancel"
     ))
     return keyboard
+
+
+# ============================================================
+#                    REFERAL
+# ============================================================
+
+def referral_menu(ref_link: str, stats: dict) -> InlineKeyboardMarkup:
+    """
+    Referal sahifasi - sodda
+    """
+    keyboard = InlineKeyboardMarkup(row_width=1)
+
+    keyboard.add(InlineKeyboardButton(
+        "📤 Do'stlarga yuborish",
+        url=f"https://t.me/share/url?url={ref_link}&text=Ajoyib kurslarni ko'ring! 🎓"
+    ))
+
+    if stats.get('total_referrals', 0) > 0:
+        keyboard.add(InlineKeyboardButton(
+            f"👥 Taklif qilganlarim ({stats['total_referrals']})",
+            callback_data="referral:list"
+        ))
+
+    return keyboard
+
+
+def referral_back() -> InlineKeyboardMarkup:
+    """Orqaga"""
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data="referral:menu"
+    ))
+    return keyboard

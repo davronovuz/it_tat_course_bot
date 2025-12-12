@@ -233,7 +233,7 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
     questions = data['questions']
     answers = data.get('answers', {})
-    passing_score = data.get('passing_score', 60)
+    passing_score = int(user_db.get_setting('default_passing_score') or user_db.get('passing_score', 60))
     lesson_id = data['lesson_id']
     test_id = data['test_id']
 

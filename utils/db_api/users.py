@@ -76,6 +76,9 @@ class UserDatabase(Database):
         """
         self.execute(sql, commit=True)
 
+
+
+
     def create_table_courses(self):
         """Kurslar jadvali"""
         sql = """
@@ -91,6 +94,25 @@ class UserDatabase(Database):
         );
         """
         self.execute(sql, commit=True)
+
+    def create_table_referrals(self):
+        """Referallar jadvali"""
+        sql = """
+        CREATE TABLE IF NOT EXISTS Referrals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            referrer_id INTEGER NOT NULL,
+            referred_id INTEGER NOT NULL UNIQUE,
+            status VARCHAR(20) DEFAULT 'registered',
+            bonus_given INTEGER DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            converted_at DATETIME NULL,
+            FOREIGN KEY (referrer_id) REFERENCES Users(id) ON DELETE CASCADE,
+            FOREIGN KEY (referred_id) REFERENCES Users(id) ON DELETE CASCADE
+        );
+        """
+        self.execute(sql, commit=True)
+        self.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON Referrals(referrer_id);", commit=True)
+        self.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referred ON Referrals(referred_id);", commit=True)
 
     def create_table_modules(self):
         """Modullar jadvali"""
@@ -352,7 +374,7 @@ class UserDatabase(Database):
         )
         return result is not None
 
-    def add_user(self, telegram_id: int, username: str = None, full_name: str = None) -> bool:
+    def add_user(self, telegram_id: int, username: str = None, full_name: str = None,referral_code: str = None) -> bool:
         """Yangi foydalanuvchi qo'shish"""
         if self.user_exists(telegram_id):
             return False
@@ -363,6 +385,12 @@ class UserDatabase(Database):
             parameters=(telegram_id, username, full_name, datetime.now(TASHKENT_TZ).isoformat()),
             commit=True
         )
+
+        # Agar referal kod bilan kelgan bo'lsa
+        if referral_code:
+            referrer = self.get_user_by_referral_code(referral_code)
+            if referrer:
+                self.register_referral(referrer['telegram_id'], telegram_id)
         return True
 
     def get_user_id(self, telegram_id: int) -> Optional[int]:
@@ -1601,6 +1629,8 @@ class UserDatabase(Database):
         # Kursga dostup berish
         self.init_user_progress(payment['telegram_id'], payment['course_id'])
 
+        self.convert_referral(payment['telegram_id'])
+
         return True
 
     def reject_payment(self, payment_id: int, admin_telegram_id: int, note: str = None) -> bool:
@@ -2234,3 +2264,323 @@ class UserDatabase(Database):
         except Exception as e:
             print(f"❌ Tartib o'zgartirishda xato: {e}")
             return False
+
+    # ============================================================
+    #                    REFERAL METODLARI
+    # ============================================================
+
+    def generate_referral_code(self, telegram_id: int) -> Optional[str]:
+        """Foydalanuvchi uchun unikal referal kod yaratish"""
+        user = self.get_user(telegram_id)
+        if not user:
+            return None
+
+        # Agar allaqachon bor bo'lsa, qaytarish
+        if user.get('referral_code'):
+            return user['referral_code']
+
+        # Yangi kod yaratish
+        import random
+        import string
+
+        while True:
+            code = 'REF_' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+            # Unikal ekanini tekshirish
+            existing = self.execute(
+                "SELECT 1 FROM Users WHERE referral_code = ?",
+                parameters=(code,),
+                fetchone=True
+            )
+            if not existing:
+                break
+
+        # Saqlash
+        self.execute(
+            "UPDATE Users SET referral_code = ? WHERE telegram_id = ?",
+            parameters=(code, telegram_id),
+            commit=True
+        )
+
+        return code
+
+    def get_referral_code(self, telegram_id: int) -> Optional[str]:
+        """Foydalanuvchi referal kodini olish (yo'q bo'lsa yaratish)"""
+        result = self.execute(
+            "SELECT referral_code FROM Users WHERE telegram_id = ?",
+            parameters=(telegram_id,),
+            fetchone=True
+        )
+
+        if result and result[0]:
+            return result[0]
+
+        # Yo'q bo'lsa yaratish
+        return self.generate_referral_code(telegram_id)
+
+    def get_user_by_referral_code(self, code: str) -> Optional[Dict]:
+        """Referal kod orqali foydalanuvchini topish"""
+        result = self.execute(
+            """SELECT id, telegram_id, username, full_name, referral_count
+               FROM Users WHERE referral_code = ?""",
+            parameters=(code,),
+            fetchone=True
+        )
+
+        if result:
+            return {
+                'id': result[0],
+                'telegram_id': result[1],
+                'username': result[2],
+                'full_name': result[3],
+                'referral_count': result[4] or 0
+            }
+        return None
+
+    def register_referral(self, referrer_telegram_id: int, referred_telegram_id: int) -> bool:
+        """
+        Yangi referal ro'yxatdan o'tkazish
+
+        Args:
+            referrer_telegram_id: Taklif qiluvchi (havola egasi)
+            referred_telegram_id: Taklif qilingan (yangi user)
+        """
+        # O'zini o'zi taklif qila olmaydi
+        if referrer_telegram_id == referred_telegram_id:
+            return False
+
+        referrer_id = self.get_user_id(referrer_telegram_id)
+        referred_id = self.get_user_id(referred_telegram_id)
+
+        if not referrer_id or not referred_id:
+            return False
+
+        # Allaqachon taklif qilinganmi tekshirish
+        existing = self.execute(
+            "SELECT 1 FROM Referrals WHERE referred_id = ?",
+            parameters=(referred_id,),
+            fetchone=True
+        )
+        if existing:
+            return False
+
+        try:
+            # Referrals jadvaliga qo'shish
+            self.execute(
+                """INSERT INTO Referrals (referrer_id, referred_id, status)
+                   VALUES (?, ?, 'registered')""",
+                parameters=(referrer_id, referred_id),
+                commit=True
+            )
+
+            # Users jadvalida referred_by ni yangilash
+            self.execute(
+                "UPDATE Users SET referred_by = ? WHERE id = ?",
+                parameters=(referrer_id, referred_id),
+                commit=True
+            )
+
+            # Taklif qiluvchining referral_count ni oshirish
+            self.execute(
+                "UPDATE Users SET referral_count = COALESCE(referral_count, 0) + 1 WHERE id = ?",
+                parameters=(referrer_id,),
+                commit=True
+            )
+
+            # Ro'yxatdan o'tish bonusini berish
+            register_bonus = int(self.get_setting('referral_bonus_register', '5'))
+            if register_bonus > 0:
+                self.add_score(referrer_telegram_id, register_bonus)
+
+                # Bonus berilganini saqlash
+                self.execute(
+                    "UPDATE Referrals SET bonus_given = ? WHERE referrer_id = ? AND referred_id = ?",
+                    parameters=(register_bonus, referrer_id, referred_id),
+                    commit=True
+                )
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Referal ro'yxatda xato: {e}")
+            return False
+
+    def convert_referral(self, referred_telegram_id: int) -> bool:
+        """
+        Referal to'lov qilganda bonus berish
+
+        Args:
+            referred_telegram_id: To'lov qilgan user (taklif qilingan)
+        """
+        referred_id = self.get_user_id(referred_telegram_id)
+        if not referred_id:
+            return False
+
+        # Referalni topish
+        result = self.execute(
+            """SELECT r.id, r.referrer_id, r.status, r.bonus_given, u.telegram_id
+               FROM Referrals r
+               JOIN Users u ON r.referrer_id = u.id
+               WHERE r.referred_id = ?""",
+            parameters=(referred_id,),
+            fetchone=True
+        )
+
+        if not result:
+            return False
+
+        referral_id, referrer_id, status, current_bonus, referrer_telegram_id = result
+
+        # Allaqachon converted bo'lgan bo'lsa
+        if status == 'paid':
+            return False
+
+        try:
+            # Statusni yangilash
+            self.execute(
+                """UPDATE Referrals 
+                   SET status = 'paid', converted_at = ?
+                   WHERE id = ?""",
+                parameters=(datetime.now(TASHKENT_TZ).isoformat(), referral_id),
+                commit=True
+            )
+
+            # To'lov bonusini berish
+            payment_bonus = int(self.get_setting('referral_bonus_payment', '20'))
+            if payment_bonus > 0:
+                self.add_score(referrer_telegram_id, payment_bonus)
+
+                # Umumiy bonusni yangilash
+                new_bonus = (current_bonus or 0) + payment_bonus
+                self.execute(
+                    "UPDATE Referrals SET bonus_given = ? WHERE id = ?",
+                    parameters=(new_bonus, referral_id),
+                    commit=True
+                )
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Referal convert xato: {e}")
+            return False
+
+    def get_user_referrals(self, telegram_id: int) -> List[Dict]:
+        """Foydalanuvchi taklif qilgan odamlar ro'yxati"""
+        user_id = self.get_user_id(telegram_id)
+        if not user_id:
+            return []
+
+        results = self.execute(
+            """SELECT u.telegram_id, u.username, u.full_name, 
+                      r.status, r.bonus_given, r.created_at, r.converted_at
+               FROM Referrals r
+               JOIN Users u ON r.referred_id = u.id
+               WHERE r.referrer_id = ?
+               ORDER BY r.created_at DESC""",
+            parameters=(user_id,),
+            fetchall=True
+        )
+
+        referrals = []
+        for row in results:
+            referrals.append({
+                'telegram_id': row[0],
+                'username': row[1],
+                'full_name': row[2],
+                'status': row[3],
+                'bonus_given': row[4] or 0,
+                'created_at': row[5],
+                'converted_at': row[6]
+            })
+        return referrals
+
+    def get_referral_stats(self, telegram_id: int) -> Dict:
+        """Foydalanuvchi referal statistikasi"""
+        user_id = self.get_user_id(telegram_id)
+        if not user_id:
+            return {
+                'total_referrals': 0,
+                'registered': 0,
+                'paid': 0,
+                'total_bonus': 0,
+                'referral_code': None
+            }
+
+        # Umumiy statistika
+        result = self.execute(
+            """SELECT 
+                   COUNT(*) as total,
+                   SUM(CASE WHEN status = 'registered' THEN 1 ELSE 0 END) as registered,
+                   SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paid,
+                   COALESCE(SUM(bonus_given), 0) as total_bonus
+               FROM Referrals
+               WHERE referrer_id = ?""",
+            parameters=(user_id,),
+            fetchone=True
+        )
+
+        # Referal kodini olish
+        code = self.get_referral_code(telegram_id)
+
+        return {
+            'total_referrals': result[0] or 0,
+            'registered': result[1] or 0,
+            'paid': result[2] or 0,
+            'total_bonus': result[3] or 0,
+            'referral_code': code
+        }
+
+    def get_top_referrers(self, limit: int = 10) -> List[Dict]:
+        """Eng ko'p taklif qilganlar reytingi"""
+        results = self.execute(
+            """SELECT u.telegram_id, u.username, u.full_name, 
+                      COALESCE(u.referral_count, 0) as ref_count,
+                      COALESCE(SUM(r.bonus_given), 0) as total_bonus
+               FROM Users u
+               LEFT JOIN Referrals r ON u.id = r.referrer_id
+               WHERE COALESCE(u.referral_count, 0) > 0
+               GROUP BY u.id
+               ORDER BY ref_count DESC, total_bonus DESC
+               LIMIT ?""",
+            parameters=(limit,),
+            fetchall=True
+        )
+
+        referrers = []
+        for i, row in enumerate(results, 1):
+            referrers.append({
+                'rank': i,
+                'telegram_id': row[0],
+                'username': row[1],
+                'full_name': row[2],
+                'referral_count': row[3],
+                'total_bonus': row[4]
+            })
+        return referrers
+
+    def get_referrer_info(self, telegram_id: int) -> Optional[Dict]:
+        """Foydalanuvchini kim taklif qilganini bilish"""
+        user_id = self.get_user_id(telegram_id)
+        if not user_id:
+            return None
+
+        result = self.execute(
+            """SELECT u.telegram_id, u.username, u.full_name
+               FROM Users u
+               JOIN Users referred ON referred.referred_by = u.id
+               WHERE referred.id = ?""",
+            parameters=(user_id,),
+            fetchone=True
+        )
+
+        if result:
+            return {
+                'telegram_id': result[0],
+                'username': result[1],
+                'full_name': result[2]
+            }
+        return None
+
+    def check_referral_enabled(self) -> bool:
+        """Referal tizimi yoqilganmi"""
+        return self.get_setting('referral_enabled', 'true').lower() == 'true'

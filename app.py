@@ -120,6 +120,10 @@ def create_all_tables():
         user_db.create_table_settings()
         logger.info("  ✅ Settings jadvali")
 
+        #16 referal havola
+        user_db.create_table_referrals()
+        logger.info("  ✅ Referal  jadvali")
+
         logger.info("📦 Barcha jadvallar tayyor! (15 ta)")
         return True
 

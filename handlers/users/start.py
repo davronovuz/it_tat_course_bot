@@ -12,7 +12,7 @@ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import CommandStart, Text
 
-from loader import dp, user_db
+from loader import dp, user_db,bot
 from keyboards.default.user_keyboards import phone_request, remove_keyboard
 from keyboards.inline.user_keyboards import (
     demo_lesson_button,
@@ -32,7 +32,7 @@ from states.user_states import RegistrationStates, PaymentStates
 @dp.message_handler(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     """
-    /start buyrug'i
+    /start buyrug'i (referal bilan)
     """
     await state.finish()
 
@@ -40,24 +40,42 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     full_name = message.from_user.full_name
 
+    # Referal kodni olish
+    args = message.get_args()
+    referral_code = args if args and args.startswith('REF_') else None
+
     # Foydalanuvchi bazada bormi?
     user = user_db.get_user(telegram_id)
 
     if not user:
-        # Yangi user - bazaga qo'shish
+        # Yangi user
         user_db.add_user(telegram_id, username=username, full_name=full_name)
+
+        # Referal orqali kelgan bo'lsa
+        if referral_code:
+            referrer = user_db.get_user_by_referral_code(referral_code)
+            if referrer and referrer['telegram_id'] != telegram_id:
+                if user_db.register_referral(referrer['telegram_id'], telegram_id):
+                    # Taklif qiluvchiga xabar
+                    try:
+                        bonus = user_db.get_setting('referral_bonus_register', '5')
+                        await bot.send_message(
+                            referrer['telegram_id'],
+                            f"🎉 Yangi taklif!\n\n"
+                            f"Havolangiz orqali kimdir ro'yxatdan o'tdi.\n"
+                            f"🎁 <b>+{bonus} ball</b>"
+                        )
+                    except:
+                        pass
     else:
-        # Mavjud user - yangilash
+        # Mavjud user
         user_db.update_user(telegram_id, username=username)
+        user_db.update_last_active(telegram_id)
 
-        user_id = user['id']
-
-        # Agar to'lagan bo'lsa - darslarni ko'rsat
-        if check_has_paid_course(user_id):
-            await show_lessons_list(message, user_id)
+        if check_has_paid_course(user['id']):
+            await show_lessons_list(message, user['id'])
             return
 
-    # Hammaga demo dars taklif qilinadi
     text = """
 IT TAT markazining Online Kompyuter Savodxonlik Kursiga xush kelibsiz!
 
@@ -344,8 +362,8 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
     course_info = get_course_info()
 
     # TODO: Config dan olish
-    card_number = "8600 1234 5678 9012"
-    card_holder = "ALIYEV ALI"
+    card_number = user_db.get_setting('card_number') or "8600 1234 5678 9012"
+    card_holder = user_db.get_setting('card_holder') or "ALIYEV ALI"
 
     text = f"""
 💳 <b>To'lov</b>

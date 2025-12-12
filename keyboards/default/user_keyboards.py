@@ -8,6 +8,16 @@ Asosan hammasi INLINE orqali
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 
+def main_menu() -> ReplyKeyboardMarkup:
+    """
+    Asosiy menyu - ro'yxatdan o'tgan userlar uchun
+    """
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    keyboard.add(KeyboardButton("📚 Darslar"))
+    keyboard.add(KeyboardButton("👥 Do'stlarni taklif qilish"))
+    keyboard.add(KeyboardButton("📊 Mening statistikam"))
+    return keyboard
+
 def phone_request() -> ReplyKeyboardMarkup:
     """
     Telefon raqam so'rash - bu kerak chunki

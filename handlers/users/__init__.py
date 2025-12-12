@@ -17,7 +17,7 @@ from . import tests                   # Test yechish
 
 # Katta/asosiy handlerlar
 from . import lessons                 # Darslar
-              # Kurslar, sotib olish
 
+from . import referral
 # Eng muhim - asosiy handler
 from . import start                   # /start, ro'yxatdan o'tish, bosh menyu
