@@ -290,6 +290,7 @@ async def view_receipt(call: types.CallbackQuery):
 #                    TO'LOVNI TASDIQLASH
 # ============================================================
 
+
 @dp.callback_query_handler(text_startswith="admin:payment:approve:")
 @admin_required
 async def approve_payment(call: types.CallbackQuery):
@@ -327,7 +328,7 @@ async def approve_payment(call: types.CallbackQuery):
 
     await call.answer("✅ To'lov tasdiqlandi!", show_alert=True)
 
-    # Foydalanuvchiga xabar yuborish - TUGMA BILAN
+    # Foydalanuvchiga xabar yuborish
     try:
         user_text = f"""
 🎉 <b>To'lovingiz tasdiqlandi!</b>
@@ -337,7 +338,6 @@ async def approve_payment(call: types.CallbackQuery):
 
 Endi darslarni boshlashingiz mumkin!
 """
-        # Darslarni ko'rish tugmasi
         user_kb = types.InlineKeyboardMarkup()
         user_kb.add(types.InlineKeyboardButton(
             "📚 Darslarni ko'rish",
@@ -347,6 +347,55 @@ Endi darslarni boshlashingiz mumkin!
         await bot.send_message(payment[6], user_text, reply_markup=user_kb)
     except Exception as e:
         print(f"Foydalanuvchiga xabar yuborib bo'lmadi: {e}")
+
+    # ✅ REFERAL CASHBACK TEKSHIRISH
+    referred_user_id = payment[1]  # user_id
+    referral = user_db.execute(
+        """SELECT u.telegram_id, u.full_name
+           FROM Referrals r
+           JOIN Users u ON r.referrer_id = u.id
+           WHERE r.referred_id = ? AND r.status = 'registered'""",
+        parameters=(referred_user_id,),
+        fetchone=True
+    )
+
+    if referral:
+        referrer_telegram_id = referral[0]
+        referrer_name = referral[1] or "Foydalanuvchi"
+
+        # Cashback hisoblash
+        cashback_percent = int(user_db.get_setting('referral_cashback', '10'))
+        cashback_amount = int(payment[3] * cashback_percent / 100)
+        cashback_text = f"{cashback_amount:,}".replace(",", " ")
+
+        # Referal statusini yangilash
+        user_db.execute(
+            """UPDATE Referrals 
+               SET status = 'paid', bonus_given = ?, converted_at = datetime('now')
+               WHERE referred_id = ? AND status = 'registered'""",
+            parameters=(cashback_amount, referred_user_id),
+            commit=True
+        )
+
+        # Taklif qiluvchiga xabar
+        try:
+            await bot.send_message(
+                referrer_telegram_id,
+                f"🎉 <b>Tabriklaymiz!</b>\n\n"
+                f"Siz taklif qilgan do'stingiz kurs sotib oldi!\n\n"
+                f"💰 Sizga <b>{cashback_text} so'm</b> cashback!\n\n"
+                f"📞 Tez orada siz bilan bog'lanamiz."
+            )
+        except:
+            pass
+
+        # Adminga eslatma
+        await call.message.answer(
+            f"💰 <b>Referal cashback!</b>\n\n"
+            f"👤 Taklif qiluvchi: {referrer_name}\n"
+            f"🆔 ID: <code>{referrer_telegram_id}</code>\n"
+            f"💵 Qaytarish kerak: <b>{cashback_text} so'm</b>"
+        )
 
     # Sahifani yangilash
     try:
@@ -366,7 +415,6 @@ Endi darslarni boshlashingiz mumkin!
             f"Foydalanuvchiga dostup berildi.",
             reply_markup=back_button("admin:payments:pending")
         )
-
 
 # ============================================================
 #                    TO'LOVNI RAD ETISH

@@ -324,6 +324,25 @@ class UserDatabase(Database):
         """
         self.execute(sql, commit=True)
 
+        # Default sozlamalar
+        default_settings = [
+            ('feedback_required', 'false', 'Fikr yozish majburiymi'),
+            ('feedback_score', '2', 'Fikr uchun beriladigan ball'),
+            ('test_passing_score', '60', 'Testdan otish minimal bali (%)'),
+            ('bronze_threshold', '60', 'Bronza sertifikat chegarasi (%)'),
+            ('silver_threshold', '75', 'Kumush sertifikat chegarasi (%)'),
+            ('gold_threshold', '90', 'Oltin sertifikat chegarasi (%)'),
+            ('reminder_days', '3', 'Necha kundan keyin eslatma yuborish'),
+            ('referral_cashback', '10', 'Referal cashback foizi (%)'),
+        ]
+
+        for key, value, desc in default_settings:
+            self.execute(
+                "INSERT OR IGNORE INTO Settings (key, value, description) VALUES (?, ?, ?)",
+                parameters=(key, value, desc),
+                commit=True
+            )
+
     def create_table_lesson_materials(self):
         sql = """
             CREATE TABLE IF NOT EXISTS LessonMaterials (
@@ -1610,11 +1629,14 @@ class UserDatabase(Database):
             })
         return payments
 
-    def approve_payment(self, payment_id: int, admin_telegram_id: int) -> bool:
-        """To'lovni tasdiqlash"""
+    def approve_payment(self, payment_id: int, admin_telegram_id: int) -> dict:
+        """
+        To'lovni tasdiqlash
+        Returns: {'success': True, 'referrer_telegram_id': 123, 'cashback': 50000} yoki {'success': True}
+        """
         payment = self.get_payment(payment_id)
         if not payment or payment['status'] != 'pending':
-            return False
+            return {'success': False}
 
         admin_id = self.get_user_id(admin_telegram_id)
 
@@ -1629,9 +1651,40 @@ class UserDatabase(Database):
         # Kursga dostup berish
         self.init_user_progress(payment['telegram_id'], payment['course_id'])
 
-        self.convert_referral(payment['telegram_id'])
+        # Refererni tekshirish
+        referred_user_id = self.get_user_id(payment['telegram_id'])
+        referral = self.execute(
+            """SELECT r.referrer_id, u.telegram_id 
+               FROM Referrals r
+               JOIN Users u ON r.referrer_id = u.id
+               WHERE r.referred_id = ? AND r.status = 'registered'""",
+            parameters=(referred_user_id,),
+            fetchone=True
+        )
 
-        return True
+        if referral:
+            referrer_id, referrer_telegram_id = referral
+
+            # Cashback hisoblash
+            cashback_percent = int(self.get_setting('referral_cashback', '10'))
+            cashback_amount = int(payment['amount'] * cashback_percent / 100)
+
+            # Referal statusini yangilash
+            self.execute(
+                """UPDATE Referrals 
+                   SET status = 'paid', bonus_given = ?, converted_at = ?
+                   WHERE referred_id = ?""",
+                parameters=(cashback_amount, datetime.now(TASHKENT_TZ).isoformat(), referred_user_id),
+                commit=True
+            )
+
+            return {
+                'success': True,
+                'referrer_telegram_id': referrer_telegram_id,
+                'cashback': cashback_amount
+            }
+
+        return {'success': True}
 
     def reject_payment(self, payment_id: int, admin_telegram_id: int, note: str = None) -> bool:
         """To'lovni rad etish"""

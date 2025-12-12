@@ -532,6 +532,8 @@ async def show_lessons_list(message: types.Message, user_id: int):
     """
     Darslar ro'yxatini ko'rsatish (message)
     """
+    from keyboards.default.user_keyboards import user_main_menu
+
     lessons = get_all_lessons_with_status(user_id)
 
     if not lessons:
@@ -547,8 +549,9 @@ async def show_lessons_list(message: types.Message, user_id: int):
 📊 Progress: {completed}/{total}
 """
 
+    # Inline darslar + Reply menyu
     await message.answer(text, reply_markup=simple_lessons_list(lessons))
-
+    await message.answer("⬇️", reply_markup=user_main_menu())
 
 async def show_lessons_list_callback(call: types.CallbackQuery, user_id: int):
     """
