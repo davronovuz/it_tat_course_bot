@@ -173,27 +173,33 @@ async def show_question(message: types.Message, state: FSMContext, index: int):
 # ============================================================
 #                    JAVOB BERISH
 # ============================================================
-
 @dp.callback_query_handler(text_startswith="user:answer:", state=TestStates.in_progress)
 async def answer_question(call: types.CallbackQuery, state: FSMContext):
     """
     Savolga javob berish
-    user:answer:{index}:{answer}
     """
     parts = call.data.split(":")
     question_index = int(parts[2])
     answer = parts[3]  # A, B, C, D
 
     data = await state.get_data()
+    questions = data['questions']
+    question = questions[question_index]
+    correct = question.get('correct', '').upper()
 
     # Javobni saqlash
     answers = data.get('answers', {})
     answers[str(question_index)] = answer
     await state.update_data(answers=answers)
 
+    # To'g'ri yoki noto'g'ri
+    if answer.upper() == correct:
+        await call.answer("✅ To'g'ri! 🎉", show_alert=False)
+    else:
+        await call.answer(f"❌ Noto'g'ri! Javob: {correct}", show_alert=True)
+
     # Keyingi savol
     await show_question(call.message, state, question_index + 1)
-    await call.answer()
 
 
 # ============================================================

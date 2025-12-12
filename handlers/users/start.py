@@ -389,12 +389,25 @@ async def send_receipt_clicked(call: types.CallbackQuery):
     await call.answer()
 
 
-@dp.message_handler(state=PaymentStates.receipt, content_types=['photo'])
+@dp.message_handler(state=PaymentStates.receipt, content_types=['photo', 'document'])
 async def receive_payment_receipt(message: types.Message, state: FSMContext):
     """
-    Chek rasmini qabul qilish
+    Chek rasmini yoki hujjatni qabul qilish
     """
-    photo = message.photo[-1]
+    # Photo yoki document
+    if message.photo:
+        file_id = message.photo[-1].file_id
+    elif message.document:
+        # Faqat rasm formatlarini qabul qilish
+        mime = message.document.mime_type or ""
+        if mime.startswith('image/') or mime == 'application/pdf':
+            file_id = message.document.file_id
+        else:
+            await message.answer("❌ Faqat rasm yoki PDF yuboring!")
+            return
+    else:
+        await message.answer("❌ Chek rasmini yuboring!")
+        return
 
     data = await state.get_data()
     course_id = data.get('course_id')
@@ -407,7 +420,7 @@ async def receive_payment_receipt(message: types.Message, state: FSMContext):
         telegram_id=message.from_user.id,
         course_id=course_id,
         amount=course['price'],
-        receipt_file_id=photo.file_id
+        receipt_file_id=file_id
     )
 
     await state.finish()
@@ -419,13 +432,9 @@ async def receive_payment_receipt(message: types.Message, state: FSMContext):
             f"⏳ Admin tekshirmoqda...",
             reply_markup=payment_pending()
         )
-        await notify_admin_new_payment(user, course_id, photo.file_id, payment_id)
+        await notify_admin_new_payment(user, course_id, file_id, payment_id)
     else:
         await message.answer("❌ Xatolik yuz berdi!")
-
-
-
-
 
 
 
