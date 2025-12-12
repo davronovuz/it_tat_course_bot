@@ -376,6 +376,7 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
         pass
     await call.message.answer(text, reply_markup=payment_info())
     await state.update_data(course_id=course['id'])
+    await PaymentStates.receipt.set()
     await call.answer()
 
 
