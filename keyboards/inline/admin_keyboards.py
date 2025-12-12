@@ -659,30 +659,16 @@ def feedbacks_menu() -> InlineKeyboardMarkup:
 # ============================================================
 
 def settings_menu() -> InlineKeyboardMarkup:
-    """Sozlamalar menyusi"""
     keyboard = InlineKeyboardMarkup(row_width=1)
-
-    keyboard.add(InlineKeyboardButton(
-        "💬 Fikr sozlamalari",
-        callback_data="admin:settings:feedback"
-    ))
-    keyboard.add(InlineKeyboardButton(
-        "📝 Test sozlamalari",
-        callback_data="admin:settings:test"
-    ))
-    keyboard.add(InlineKeyboardButton(
-        "🎓 Sertifikat sozlamalari",
-        callback_data="admin:settings:cert"
-    ))
-    keyboard.add(InlineKeyboardButton(
-        "👨‍💼 Adminlar",
-        callback_data="admin:settings:admins"
-    ))
-    keyboard.add(InlineKeyboardButton(
-        "⬅️ Orqaga",
-        callback_data="admin:main"
-    ))
-
+    keyboard.add(
+        InlineKeyboardButton("💬 Fikr sozlamalari", callback_data="admin:settings:feedback"),
+        InlineKeyboardButton("📝 Test sozlamalari", callback_data="admin:settings:test"),
+        InlineKeyboardButton("🎓 Sertifikat sozlamalari", callback_data="admin:settings:cert"),
+        InlineKeyboardButton("💳 To'lov sozlamalari", callback_data="admin:settings:payment"),
+        InlineKeyboardButton("⏰ Eslatma sozlamalari", callback_data="admin:settings:reminder"),
+        InlineKeyboardButton("👨‍💼 Adminlar", callback_data="admin:settings:admins"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:main")
+    )
     return keyboard
 
 

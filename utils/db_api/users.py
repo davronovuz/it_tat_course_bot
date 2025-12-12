@@ -2013,6 +2013,30 @@ class UserDatabase(Database):
         )
         return True
 
+    def get_admin(self, telegram_id: int) -> Optional[Dict]:
+        user_id = self.get_user_id(telegram_id)
+        if not user_id:
+            return None
+
+        result = self.execute(
+            """SELECT a.id, u.telegram_id, a.name, a.is_super_admin, a.created_at
+               FROM Admins a
+               JOIN Users u ON a.user_id = u.id
+               WHERE a.user_id = ?""",
+            parameters=(user_id,),
+            fetchone=True
+        )
+
+        if result:
+            return {
+                'id': result[0],
+                'telegram_id': result[1],
+                'name': result[2],
+                'is_super': bool(result[3]),
+                'created_at': result[4]
+            }
+        return None
+
     def delete_all_users(self) -> int:
         """Barcha foydalanuvchilarni o'chirish (adminlardan tashqari)"""
         # Avval sonini olish
@@ -2028,6 +2052,7 @@ class UserDatabase(Database):
             commit=True
         )
         return count
+
 
     def add_material(
             self,

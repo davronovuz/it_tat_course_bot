@@ -644,3 +644,192 @@ async def confirm_delete_admin(call: types.CallbackQuery):
         await call.answer("❌ Admin topilmadi!", show_alert=True)
 
     await call.answer()
+
+# ============================================================
+#                    TO'LOV SOZLAMALARI
+# ============================================================
+
+@dp.callback_query_handler(text="admin:settings:payment")
+@admin_required
+async def show_payment_settings(call: types.CallbackQuery):
+    card_number = user_db.get_setting('card_number') or '8600 0000 0000 0000'
+    card_holder = user_db.get_setting('card_holder') or 'ISMI FAMILIYASI'
+
+    text = f"""
+💳 <b>To'lov sozlamalari</b>
+
+<b>Joriy sozlamalar:</b>
+├ 💳 Karta: <code>{card_number}</code>
+└ 👤 Egasi: <b>{card_holder}</b>
+
+⬇️ O'zgartirish uchun tanlang:
+"""
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("💳 Karta raqamini o'zgartirish", callback_data="admin:setting:card_number"),
+        types.InlineKeyboardButton("👤 Karta egasini o'zgartirish", callback_data="admin:setting:card_holder"),
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:settings")
+    )
+
+    await call.message.edit_text(text, reply_markup=keyboard)
+    await call.answer()
+
+
+@dp.callback_query_handler(text="admin:setting:card_number")
+@admin_required
+async def change_card_number(call: types.CallbackQuery, state: FSMContext):
+    await call.message.edit_text(
+        "💳 <b>Karta raqami</b>\n\n"
+        "Yangi karta raqamini kiriting:\n"
+        "<i>Masalan: 8600 1234 5678 9012</i>"
+    )
+    await call.message.answer("✍️ Karta raqami:", reply_markup=admin_cancel_button())
+    await SettingsStates.card_number.set()
+    await call.answer()
+
+
+@dp.message_handler(state=SettingsStates.card_number)
+async def save_card_number(message: types.Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.finish()
+        await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
+        return
+
+    card = message.text.strip()
+    card_digits = ''.join(filter(str.isdigit, card))
+
+    if len(card_digits) < 16:
+        await message.answer("❌ Karta raqami 16 ta raqamdan iborat bo'lishi kerak!")
+        return
+
+    formatted = ' '.join([card_digits[i:i+4] for i in range(0, 16, 4)])
+    user_db.set_setting('card_number', formatted)
+
+    await state.finish()
+    await message.answer(f"✅ Karta raqami o'zgartirildi:\n<code>{formatted}</code>", reply_markup=remove_keyboard())
+
+
+@dp.callback_query_handler(text="admin:setting:card_holder")
+@admin_required
+async def change_card_holder(call: types.CallbackQuery, state: FSMContext):
+    await call.message.edit_text(
+        "👤 <b>Karta egasi</b>\n\n"
+        "Karta egasining ismini kiriting:\n"
+        "<i>Masalan: ALIYEV ALI</i>"
+    )
+    await call.message.answer("✍️ Ism:", reply_markup=admin_cancel_button())
+    await SettingsStates.card_holder.set()
+    await call.answer()
+
+
+@dp.message_handler(state=SettingsStates.card_holder)
+async def save_card_holder(message: types.Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.finish()
+        await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
+        return
+
+    name = message.text.strip().upper()
+    user_db.set_setting('card_holder', name)
+
+    await state.finish()
+    await message.answer(f"✅ Karta egasi o'zgartirildi: <b>{name}</b>", reply_markup=remove_keyboard())
+
+
+# ============================================================
+#                    ESLATMA SOZLAMALARI
+# ============================================================
+
+@dp.callback_query_handler(text="admin:settings:reminder")
+@admin_required
+async def show_reminder_settings(call: types.CallbackQuery):
+    reminder_days = user_db.get_setting('reminder_days') or '3'
+
+    text = f"""
+⏰ <b>Eslatma sozlamalari</b>
+
+<b>Joriy sozlamalar:</b>
+└ 📅 Eslatma kunlari: <b>{reminder_days} kun</b>
+
+<i>Agar foydalanuvchi {reminder_days} kun davomida faol bo'lmasa, eslatma yuboriladi.</i>
+
+⬇️ O'zgartirish uchun tanlang:
+"""
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("📅 Kun sonini o'zgartirish", callback_data="admin:setting:reminder_days"),
+        types.InlineKeyboardButton("📤 Hozir eslatma yuborish", callback_data="admin:setting:send_reminders"),
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:settings")
+    )
+
+    await call.message.edit_text(text, reply_markup=keyboard)
+    await call.answer()
+
+
+@dp.callback_query_handler(text="admin:setting:reminder_days")
+@admin_required
+async def change_reminder_days(call: types.CallbackQuery, state: FSMContext):
+    await call.message.edit_text(
+        "📅 <b>Eslatma kunlari</b>\n\n"
+        "Necha kundan keyin eslatma yuborilsin? (1-30):"
+    )
+    await call.message.answer("✍️ Kun soni:", reply_markup=admin_cancel_button())
+    await SettingsStates.reminder_days.set()
+    await call.answer()
+
+
+@dp.message_handler(state=SettingsStates.reminder_days)
+async def save_reminder_days(message: types.Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.finish()
+        await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
+        return
+
+    try:
+        days = int(message.text.strip())
+        if not 1 <= days <= 30:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ 1-30 orasida son kiriting!")
+        return
+
+    user_db.set_setting('reminder_days', str(days))
+
+    await state.finish()
+    await message.answer(f"✅ Eslatma <b>{days} kun</b> ga o'zgartirildi!", reply_markup=remove_keyboard())
+
+
+@dp.callback_query_handler(text="admin:setting:send_reminders")
+@admin_required
+async def send_reminders_now(call: types.CallbackQuery):
+    reminder_days = int(user_db.get_setting('reminder_days') or '3')
+    inactive_users = user_db.get_inactive_users(days=reminder_days)
+
+    if not inactive_users:
+        await call.answer(f"📭 {reminder_days} kundan ortiq faol bo'lmagan foydalanuvchilar yo'q", show_alert=True)
+        return
+
+    await call.answer(f"📤 {len(inactive_users)} ta foydalanuvchiga eslatma yuborilmoqda...")
+
+    success = 0
+    failed = 0
+
+    for user in inactive_users:
+        try:
+            await bot.send_message(
+                user['telegram_id'],
+                "👋 <b>Salom!</b>\n\n"
+                "Sizni sog'indik! Darslaringizni davom ettiring va yangi bilimlar oling. 📚\n\n"
+                "Davom etish uchun /start buyrug'ini yuboring."
+            )
+            success += 1
+        except:
+            failed += 1
+
+    await call.message.answer(
+        f"✅ <b>Eslatmalar yuborildi!</b>\n\n"
+        f"📤 Yuborildi: {success}\n"
+        f"❌ Xato: {failed}"
+    )

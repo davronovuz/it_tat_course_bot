@@ -177,18 +177,16 @@ class ReportStates(StatesGroup):
 # ============================================================
 
 class SettingsStates(StatesGroup):
-    """Sozlamalar holatlari"""
-
-    # Fikr sozlamalari
-    feedback_score = State()  # Fikr uchun ball
-
-    # Test sozlamalari
-    test_passing_score = State()  # Test o'tish bali
-
-    # Sertifikat sozlamalari
-    cert_bronze = State()  # Bronza chegarasi
-    cert_silver = State()  # Kumush chegarasi
-    cert_gold = State()  # Oltin chegarasi
+    feedback_score = State()
+    test_passing_score = State()
+    cert_gold = State()
+    cert_silver = State()
+    cert_bronze = State()
+    card_number = State()
+    card_holder = State()
+    bot_name = State()
+    bot_description = State()
+    reminder_days = State()
 
 
 class AdminManageStates(StatesGroup):
