@@ -1674,62 +1674,32 @@ class UserDatabase(Database):
             })
         return payments
 
-    def approve_payment(self, payment_id: int, admin_telegram_id: int) -> dict:
-        """
-        To'lovni tasdiqlash
-        Returns: {'success': True, 'referrer_telegram_id': 123, 'cashback': 50000} yoki {'success': True}
-        """
-        payment = self.get_payment(payment_id)
-        if not payment or payment['status'] != 'pending':
-            return {'success': False}
+        # database/user_db.py ichiga joylang:
 
-        admin_id = self.get_user_id(admin_telegram_id)
+    def approve_payment(self, payment_id: int, admin_telegram_id: int) -> bool:
+            """
+            To'lovni tasdiqlash (TUZATILGAN)
+            Faqat statusni o'zgartiradi va darsni ochadi.
+            Referalga TEGMAYDI (buni admin_payments.py qiladi).
+            """
+            payment = self.get_payment(payment_id)
+            if not payment or payment['status'] != 'pending':
+                return False
 
-        # To'lovni tasdiqlash
-        self.execute(
-            """UPDATE Payments SET status = 'approved', admin_id = ?, updated_at = ?
-               WHERE id = ?""",
-            parameters=(admin_id, datetime.now(TASHKENT_TZ).isoformat(), payment_id),
-            commit=True
-        )
+            admin_id = self.get_user_id(admin_telegram_id)
 
-        # Kursga dostup berish
-        self.init_user_progress(payment['telegram_id'], payment['course_id'])
-
-        # Refererni tekshirish
-        referred_user_id = self.get_user_id(payment['telegram_id'])
-        referral = self.execute(
-            """SELECT r.referrer_id, u.telegram_id 
-               FROM Referrals r
-               JOIN Users u ON r.referrer_id = u.id
-               WHERE r.referred_id = ? AND r.status = 'registered'""",
-            parameters=(referred_user_id,),
-            fetchone=True
-        )
-
-        if referral:
-            referrer_id, referrer_telegram_id = referral
-
-            # Cashback hisoblash
-            cashback_percent = int(self.get_setting('referral_cashback', '10'))
-            cashback_amount = int(payment['amount'] * cashback_percent / 100)
-
-            # Referal statusini yangilash
+            # 1. To'lovni tasdiqlash
             self.execute(
-                """UPDATE Referrals 
-                   SET status = 'paid', bonus_given = ?, converted_at = ?
-                   WHERE referred_id = ?""",
-                parameters=(cashback_amount, datetime.now(TASHKENT_TZ).isoformat(), referred_user_id),
+                """UPDATE Payments SET status = 'approved', admin_id = ?, updated_at = ?
+                   WHERE id = ?""",
+                parameters=(admin_id, datetime.now(TASHKENT_TZ).isoformat(), payment_id),
                 commit=True
             )
 
-            return {
-                'success': True,
-                'referrer_telegram_id': referrer_telegram_id,
-                'cashback': cashback_amount
-            }
+            # 2. Kursga dostup berish
+            self.init_user_progress(payment['telegram_id'], payment['course_id'])
 
-        return {'success': True}
+            return True
 
     def reject_payment(self, payment_id: int, admin_telegram_id: int, note: str = None) -> bool:
         """To'lovni rad etish"""
