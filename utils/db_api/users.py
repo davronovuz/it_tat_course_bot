@@ -41,6 +41,7 @@ class UserDatabase(Database):
         self.create_table_certificates()
         self.create_table_settings()
         self.create_table_lesson_materials()
+        self.create_table_referrals()
         print("✅ Barcha jadvallar yaratildi")
 
     def create_table_users(self):
