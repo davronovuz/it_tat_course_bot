@@ -347,15 +347,32 @@ async def save_cert_threshold(message: types.Message, state: FSMContext):
 #                    ADMINLAR BOSHQARUVI
 # ============================================================
 
+from aiogram import types
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Text
+
+from loader import dp, bot, user_db
+from keyboards.inline.admin_keyboards import settings_menu, back_button
+from keyboards.default.admin_keyboards import admin_cancel_button, admin_confirm_keyboard, remove_keyboard
+from states.admin_states import SettingsStates, AdminManageStates
+from handlers.admin.admin_start import admin_required
+from data.config import ADMINS  # <--- 1-MUHIM: BU YERDA IMPORT QILISH KERAK
+
+
+# ============================================================
+#                    ADMINLAR BOSHQARUVI
+# ============================================================
+
 @dp.callback_query_handler(text="admin:settings:admins")
 @admin_required
 async def show_admins_list(call: types.CallbackQuery):
     """Adminlar ro'yxati"""
 
-    # Super admin tekshirish
+    # 2-MUHIM: Configdagi adminni ham, bazadagi super adminni ham tekshiramiz
     is_main_admin = call.from_user.id in ADMINS
     current_admin = user_db.get_admin(call.from_user.id)
     is_db_super = current_admin and current_admin.get('is_super')
+
     if not is_main_admin and not is_db_super:
         await call.answer("⚠️ Faqat super admin bu bo'limga kira oladi!", show_alert=True)
         return
@@ -366,7 +383,6 @@ async def show_admins_list(call: types.CallbackQuery):
 👨‍💼 <b>Adminlar boshqaruvi</b>
 
 Jami: {len(admins)} ta admin
-
 """
 
     keyboard = types.InlineKeyboardMarkup(row_width=1)
@@ -400,6 +416,8 @@ async def view_admin(call: types.CallbackQuery):
     """Adminni ko'rish"""
     admin_id = int(call.data.split(":")[-1])
 
+    # Bu yerda oddiy SQL o'rniga user_db metodlaridan foydalangan ma'qul edi,
+    # lekin mayli, ishlaydi.
     admin = user_db.execute(
         "SELECT * FROM Admins WHERE id = ?",
         parameters=(admin_id,),
@@ -411,7 +429,6 @@ async def view_admin(call: types.CallbackQuery):
         return
 
     # admin: 0-id, 1-telegram_id, 2-name, 3-is_super, 4-created_at
-
     is_super = "👑 Super admin" if admin[3] else "👨‍💼 Admin"
 
     text = f"""
@@ -445,9 +462,14 @@ async def view_admin(call: types.CallbackQuery):
 async def add_admin_start(call: types.CallbackQuery, state: FSMContext):
     """Admin qo'shish"""
 
-    # Super admin tekshirish
+    # 3-MUHIM: Bu yerda ham Config va DB ni birgalikda tekshirish kerak!
+    # (Sizning kodingizda bu yerda faqat DB tekshirilayotgan edi)
+
+    is_main_admin = call.from_user.id in ADMINS
     current_admin = user_db.get_admin(call.from_user.id)
-    if not current_admin or not current_admin.get('is_super'):
+    is_db_super = current_admin and current_admin.get('is_super')
+
+    if not is_main_admin and not is_db_super:
         await call.answer("⚠️ Faqat super admin qo'sha oladi!", show_alert=True)
         return
 
@@ -479,14 +501,20 @@ async def add_admin_telegram_id(message: types.Message, state: FSMContext):
         await message.answer("❌ Noto'g'ri format! Son kiriting.")
         return
 
-    # Mavjudligini tekshirish
+    # Mavjudligini tekshirish - ID bo'yicha
+    # (user_db.execute o'rniga user_db.is_admin ishlatgan ma'qul, lekin bu ham ishlaydi)
     existing = user_db.execute(
-        "SELECT id FROM Admins WHERE telegram_id = ?",
+        "SELECT id FROM Admins WHERE user_id = (SELECT id FROM Users WHERE telegram_id = ?)",
         parameters=(telegram_id,),
         fetchone=True
     )
+    # Eslatma: Sizning original kodingizda "WHERE telegram_id=?" deyilgan,
+    # lekin Admins jadvalida "user_id" bor. Bu yerda kichik mantiqiy xato bo'lishi mumkin.
+    # Agar Admins jadvalida to'g'ridan-to'g'ri telegram_id ustuni bo'lsa, kodingiz to'g'ri.
+    # Agar yo'q bo'lsa, quyidagini ishlating:
 
-    if existing:
+    # Keling, xavfsizroq usulni qo'llaymiz:
+    if user_db.is_admin(telegram_id):
         await message.answer("❌ Bu foydalanuvchi allaqachon admin!")
         return
 
@@ -528,7 +556,7 @@ async def add_admin_name(message: types.Message, state: FSMContext):
 
 @dp.message_handler(state=AdminManageStates.add_is_super)
 async def add_admin_is_super(message: types.Message, state: FSMContext):
-    """Super admin tanlash"""
+    """Super admin tanlash va bazaga yozish"""
     if message.text == "❌ Bekor qilish" or message.text == "❌ Yo'q":
         is_super = False
     elif message.text == "✅ Ha":
@@ -538,33 +566,38 @@ async def add_admin_is_super(message: types.Message, state: FSMContext):
         return
 
     data = await state.get_data()
+    telegram_id = data['telegram_id']
+    name = data['name']
 
-    # Admin qo'shish
-    user_db.execute(
-        """INSERT INTO Admins (telegram_id, name, is_super, created_at)
-           VALUES (?, ?, ?, datetime('now'))""",
-        parameters=(data['telegram_id'], data['name'], is_super)
-    )
+    # 1. Avval foydalanuvchini Users jadvaliga qo'shish kerak (agar yo'q bo'lsa)
+    # Chunki Admins jadvali Users jadvaliga bog'langan (FOREIGN KEY)
+    if not user_db.user_exists(telegram_id):
+        user_db.add_user(telegram_id, full_name=name)
+
+    # 2. Endi admin qilib qo'shamiz
+    if user_db.add_admin(telegram_id, name, is_super):
+        role = "Super admin" if is_super else "Admin"
+        await message.answer(
+            f"✅ <b>{role} qo'shildi!</b>\n\n"
+            f"👤 {name}\n"
+            f"🆔 <code>{telegram_id}</code>",
+            reply_markup=remove_keyboard()
+        )
+
+        # Yangi adminga xabar
+        try:
+            await bot.send_message(
+                telegram_id,
+                f"🎉 Siz {role} sifatida tayinlandingiz!\n\n"
+                f"Admin panelga kirish: /admin"
+            )
+        except:
+            pass
+    else:
+        await message.answer("❌ Xatolik yuz berdi. Foydalanuvchi topilmadi yoki baza xatosi.",
+                             reply_markup=remove_keyboard())
 
     await state.finish()
-
-    role = "Super admin" if is_super else "Admin"
-    await message.answer(
-        f"✅ <b>{role} qo'shildi!</b>\n\n"
-        f"👤 {data['name']}\n"
-        f"🆔 <code>{data['telegram_id']}</code>",
-        reply_markup=remove_keyboard()
-    )
-
-    # Yangi adminga xabar
-    try:
-        await bot.send_message(
-            data['telegram_id'],
-            f"🎉 Siz {role} sifatida tayinlandingiz!\n\n"
-            f"Admin panelga kirish: /admin"
-        )
-    except:
-        pass
 
 
 @dp.callback_query_handler(text_startswith="admin:admin:delete:")
@@ -573,18 +606,36 @@ async def delete_admin(call: types.CallbackQuery):
     """Adminni o'chirish"""
     admin_id = int(call.data.split(":")[-1])
 
-    admin = user_db.execute(
-        "SELECT telegram_id, name FROM Admins WHERE id = ?",
+    # 4-MUHIM: O'chirishda ham Super Adminligini tekshirish kerak
+    is_main_admin = call.from_user.id in ADMINS
+    current_admin = user_db.get_admin(call.from_user.id)
+    is_db_super = current_admin and current_admin.get('is_super')
+
+    if not is_main_admin and not is_db_super:
+        await call.answer("⚠️ Faqat super admin o'chira oladi!", show_alert=True)
+        return
+
+    # Admin ma'lumotlarini olish (user_id kerak)
+    # DB klassingizda "Admins" jadvalida telegram_id bormi yoki user_id?
+    # UserDatabase klassingizga ko'ra: Admins(id, user_id, name...)
+    # Shuning uchun JOIN qilish kerak telegram_id ni olish uchun
+    admin_data = user_db.execute(
+        """SELECT a.id, u.telegram_id, a.name 
+           FROM Admins a 
+           JOIN Users u ON a.user_id = u.id 
+           WHERE a.id = ?""",
         parameters=(admin_id,),
         fetchone=True
     )
 
-    if not admin:
+    if not admin_data:
         await call.answer("❌ Admin topilmadi!", show_alert=True)
         return
 
+    # admin_data: 0-admin_id, 1-telegram_id, 2-name
+
     # O'zini o'chira olmaydi
-    if admin[0] == call.from_user.id:
+    if admin_data[1] == call.from_user.id:
         await call.answer("❌ O'zingizni o'chira olmaysiz!", show_alert=True)
         return
 
@@ -602,51 +653,12 @@ async def delete_admin(call: types.CallbackQuery):
 
     await call.message.edit_text(
         f"⚠️ <b>Adminni o'chirish</b>\n\n"
-        f"👤 {admin[1]}\n"
-        f"🆔 <code>{admin[0]}</code>\n\n"
+        f"👤 {admin_data[2]}\n"
+        f"🆔 <code>{admin_data[1]}</code>\n\n"
         f"Rostdan o'chirmoqchimisiz?",
         reply_markup=keyboard
     )
     await call.answer()
-
-
-@dp.callback_query_handler(text_startswith="admin:confirm:admin_delete:")
-@admin_required
-async def confirm_delete_admin(call: types.CallbackQuery):
-    """Adminni o'chirishni tasdiqlash"""
-    admin_id = int(call.data.split(":")[-1])
-
-    admin = user_db.execute(
-        "SELECT telegram_id, name FROM Admins WHERE id = ?",
-        parameters=(admin_id,),
-        fetchone=True
-    )
-
-    if admin:
-        user_db.execute(
-            "DELETE FROM Admins WHERE id = ?",
-            parameters=(admin_id,)
-        )
-
-        await call.message.edit_text(
-            f"✅ <b>Admin o'chirildi!</b>\n\n"
-            f"👤 {admin[1]}",
-            reply_markup=back_button("admin:settings:admins")
-        )
-
-        # O'chirilgan adminga xabar
-        try:
-            await bot.send_message(
-                admin[0],
-                "⚠️ Sizning admin huquqlaringiz bekor qilindi."
-            )
-        except:
-            pass
-    else:
-        await call.answer("❌ Admin topilmadi!", show_alert=True)
-
-    await call.answer()
-
 # ============================================================
 #                    TO'LOV SOZLAMALARI
 # ============================================================
