@@ -659,6 +659,61 @@ async def delete_admin(call: types.CallbackQuery):
         reply_markup=keyboard
     )
     await call.answer()
+
+
+# Bu funksiya sizning kodingizda yetishmayapti
+@dp.callback_query_handler(text_startswith="admin:confirm:admin_delete:")
+@admin_required
+async def confirm_delete_admin(call: types.CallbackQuery):
+    """Adminni o'chirishni tasdiqlash"""
+    try:
+        admin_id = int(call.data.split(":")[-1])
+    except ValueError:
+        await call.answer("❌ Xatolik: ID topilmadi", show_alert=True)
+        return
+
+    # 1. MUHIM JOYI: O'chirilayotgan adminning Telegram ID sini olish.
+    # Admins jadvalida telegram_id yo'q, shuning uchun Users jadvaliga ulaymiz (JOIN)
+    admin_data = user_db.execute(
+        """SELECT u.telegram_id, a.name 
+           FROM Admins a 
+           JOIN Users u ON a.user_id = u.id 
+           WHERE a.id = ?""",
+        parameters=(admin_id,),
+        fetchone=True
+    )
+
+    if admin_data:
+        telegram_id = admin_data[0]
+        name = admin_data[1]
+
+        # 2. Bazadan o'chiramiz
+        user_db.execute(
+            "DELETE FROM Admins WHERE id = ?",
+            parameters=(admin_id,),
+            commit=True
+        )
+
+        await call.message.edit_text(
+            f"✅ <b>Admin o'chirildi!</b>\n\n"
+            f"👤 {name}",
+            reply_markup=back_button("admin:settings:admins")
+        )
+
+        # O'chirilgan adminga xabar yuboramiz
+        try:
+            await bot.send_message(
+                telegram_id,
+                "⚠️ Sizning admin huquqlaringiz bekor qilindi."
+            )
+        except:
+            pass
+    else:
+        await call.answer("❌ Admin topilmadi (allqachon o'chirilgan bo'lishi mumkin)!", show_alert=True)
+        # Ekranni yangilash
+        await show_admins_list(call)
+
+    await call.answer()
 # ============================================================
 #                    TO'LOV SOZLAMALARI
 # ============================================================
