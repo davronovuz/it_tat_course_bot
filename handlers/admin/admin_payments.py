@@ -1,7 +1,7 @@
 """
 Admin Payments Handler
 ======================
-To'lovlarni boshqarish handlerlari
+To'lovlarni boshqarish handlerlari (FINAL)
 """
 
 from aiogram import types
@@ -287,9 +287,8 @@ async def view_receipt(call: types.CallbackQuery):
 
 
 # ============================================================
-#                    TO'LOVNI TASDIQLASH (TO'LIQ)
+#                    TO'LOVNI TASDIQLASH (FINAL)
 # ============================================================
-
 
 @dp.callback_query_handler(text_startswith="admin:payment:approve:")
 @admin_required
@@ -297,11 +296,13 @@ async def approve_payment(call: types.CallbackQuery):
     """To'lovni tasdiqlash"""
     payment_id = int(call.data.split(":")[-1])
 
-    # 1. Bazadan eng yangi ma'lumotni olamiz
+    # 1. Bazadan ma'lumot olish
+    # p.user_id -> index 1 (Bu bazadagi ichki ID)
+    # u.telegram_id -> index 6 (Bu Telegram ID)
     payment = user_db.execute(
         """SELECT p.id, p.user_id, p.course_id, p.amount, p.receipt_file_id,
                   p.status, u.telegram_id, c.name as course_name, 
-                  p.admin_id  -- Kim tasdiqlaganini bilish uchun
+                  p.admin_id
            FROM Payments p
            JOIN Users u ON p.user_id = u.id
            JOIN Courses c ON p.course_id = c.id
@@ -318,31 +319,23 @@ async def approve_payment(call: types.CallbackQuery):
             pass
         return
 
-    # 2. STATUS TEKSHIRISH (POYGA SHARTI)
+    # 2. Status tekshirish (Poyga holati)
     if payment[5] != 'pending':
-        # Agar admin ma'lum bo'lsa, ismini olamiz
         admin_name = "Boshqa admin"
         if payment[8]:
             admin_data = user_db.execute("SELECT name FROM Admins WHERE user_id = ?", (payment[8],), fetchone=True)
             if admin_data: admin_name = admin_data[0]
 
         status_text = "Tasdiqlangan ✅" if payment[5] == 'approved' else "Rad etilgan ❌"
-
-        await call.answer(f"⚠️ Kech qoldingiz! Bu to'lov allaqachon {admin_name} tomonidan {status_text}!",
-                          show_alert=True)
-
-        # Tugmalarni olib tashlaymiz
+        await call.answer(f"⚠️ Kech qoldingiz! {admin_name} tomonidan {status_text}!", show_alert=True)
         try:
-            current_caption = call.message.caption or ""
-            new_caption = current_caption + f"\n\n🔐 <b>{status_text}</b> ({admin_name})"
-            await call.message.edit_caption(caption=new_caption, reply_markup=None)
-        except:
             await call.message.edit_reply_markup(reply_markup=None)
+        except:
+            pass
         return
 
-    # 3. To'lovni tasdiqlash
+    # 3. Tasdiqlash
     result = user_db.approve_payment(payment_id, call.from_user.id)
-
     if not result:
         await call.answer("❌ Xatolik yuz berdi!", show_alert=True)
         return
@@ -354,27 +347,20 @@ async def approve_payment(call: types.CallbackQuery):
     )
     await call.answer("✅ To'lov tasdiqlandi!", show_alert=True)
 
-    # 5. Foydalanuvchiga xabar yuborish
+    # 5. Userga xabar (Telegram ID: payment[6])
     try:
-        user_text = f"""
-🎉 <b>To'lovingiz tasdiqlandi!</b>
-
-📚 Kurs: {payment[7]}
-💰 Summa: {payment[3]:,.0f} so'm
-
-✅ Sizga kursga kirish huquqi berildi. Darslarni boshlashingiz mumkin!
-"""
+        user_text = f"🎉 <b>To'lovingiz tasdiqlandi!</b>\n\n📚 Kurs: {payment[7]}\n💰 Summa: {payment[3]:,.0f} so'm\n\n✅ Darslarni boshlashingiz mumkin!"
         user_kb = types.InlineKeyboardMarkup()
         user_kb.add(types.InlineKeyboardButton("📚 Darslarni ko'rish", callback_data="user:lessons"))
-
         await bot.send_message(payment[6], user_text, reply_markup=user_kb)
-    except Exception as e:
-        print(f"Foydalanuvchiga xabar yuborishda xato: {e}")
+    except:
+        pass
 
-    # 6. REFERAL CASHBACK TIZIMI (BARCHA ADMINLARGA XABAR)
+    # 6. REFERAL CASHBACK VA ADMINLARGA ESLATMA
     try:
-        # Bazadagi convert_referral funksiyasini chaqiramiz
-        ref_result = user_db.convert_referral(payment[6], payment[3]) # payment[6] bu Telegram ID (TO'G'RI)
+        # Bazadagi user ID (payment[1]) ni yuboramiz.
+        # Chunki bazada referal munosabatlari user_id bo'yicha bog'langan.
+        ref_result = user_db.convert_referral(payment[1], payment[3])
 
         if ref_result['success']:
             referrer_tg_id = ref_result['referrer_tg_id']
@@ -384,53 +370,49 @@ async def approve_payment(call: types.CallbackQuery):
 
             cashback_text = f"{cashback_amount:,.0f}".replace(",", " ")
 
-            # ----------------------------------------------------
-            # A) FOYDALANUVCHIGA (TAKLIF QILGANGA) XABAR
-            # ----------------------------------------------------
+            # A) Foydalanuvchiga (Taklif qilganga) xabar
             try:
                 await bot.send_message(
                     referrer_tg_id,
                     f"🎉 <b>Tabriklaymiz!</b>\n\n"
                     f"Siz taklif qilgan do'stingiz kurs sotib oldi!\n\n"
                     f"💰 Sizga <b>{cashback_text} so'm</b> mukofot yozildi.\n\n"
-                    f"📞 Tez orada adminlarimiz siz bilan bog'lanib, ushbu mablag'ni kartangizga o'tkazib berishadi."
+                    f"📞 Tez orada adminlarimiz bog'lanib, pulni kartangizga o'tkazib berishadi."
                 )
             except:
-                pass  # Botni bloklagan bo'lsa
+                pass
 
-            # ----------------------------------------------------
-            # B) BARCHA ADMINLARGA CASHBACK ESLATMASI
-            # ----------------------------------------------------
+            # B) Adminlarga eslatma
             admin_alert = (
                 f"⚠️ <b>DIQQAT! CASHBACK TO'LASH KERAK!</b>\n\n"
                 f"👤 Kimga: <b>{referrer_name}</b>\n"
                 f"📞 Tel: <code>{referrer_phone}</code>\n"
                 f"🆔 ID: <code>{referrer_tg_id}</code>\n\n"
                 f"💵 To'lanishi kerak: <b>{cashback_text} so'm</b>\n\n"
-                f"<i>Iltimos, ushbu foydalanuvchi bilan bog'lanib, pulni kartasiga tashlab bering.</i>"
+                f"✅ <i>Iltimos, bog'lanib, pulni to'lab bering.</i>"
             )
 
-            # Hozirgi admin (knopkani bosgan) uchun oddiy javob
+            # Hozirgi adminga
             await call.message.answer(admin_alert)
 
-            # Qolgan barcha adminlarga ham yuboramiz
+            # Barcha adminlarga (o'zidan tashqari)
             try:
                 all_admins = user_db.get_notification_admins()
                 for admin_id in all_admins:
-                    # O'zi o'ziga qayta yubormasligi uchun tekshiramiz
                     if admin_id != call.from_user.id:
                         try:
                             await bot.send_message(admin_id, admin_alert)
                         except:
-                            pass  # Admin bloklagan bo'lsa
-            except Exception as e:
-                print(f"Adminlarga cashback xabarini yuborishda xato: {e}")
+                            pass
+            except:
+                pass
 
     except Exception as e:
-        print(f"Referal tizimida xato: {e}")
+        print(f"Referal Handler Xato: {e}")
+
 
 # ============================================================
-#                    TO'LOVNI RAD ETISH (TO'LIQ)
+#                    TO'LOVNI RAD ETISH
 # ============================================================
 
 @dp.callback_query_handler(text_startswith="admin:payment:reject:")
@@ -492,9 +474,6 @@ async def reject_payment_start(call: types.CallbackQuery, state: FSMContext):
 
     await PaymentStates.reject_reason.set()
     await call.answer()
-
-
-
 
 
 @dp.message_handler(state=PaymentStates.reject_reason)
