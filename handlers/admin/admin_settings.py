@@ -7,7 +7,7 @@ Sozlamalar va admin boshqaruvi handlerlari
 from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Text
-
+from data.config import ADMINS
 from loader import dp, bot, user_db
 from keyboards.inline.admin_keyboards import settings_menu, back_button
 from keyboards.default.admin_keyboards import admin_cancel_button, admin_confirm_keyboard, remove_keyboard
@@ -353,8 +353,10 @@ async def show_admins_list(call: types.CallbackQuery):
     """Adminlar ro'yxati"""
 
     # Super admin tekshirish
+    is_main_admin = call.from_user.id in ADMINS
     current_admin = user_db.get_admin(call.from_user.id)
-    if not current_admin or not current_admin.get('is_super'):
+    is_db_super = current_admin and current_admin.get('is_super')
+    if not is_main_admin and not is_db_super:
         await call.answer("⚠️ Faqat super admin bu bo'limga kira oladi!", show_alert=True)
         return
 
