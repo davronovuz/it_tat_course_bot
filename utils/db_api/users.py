@@ -45,7 +45,7 @@ class UserDatabase(Database):
         print("✅ Barcha jadvallar yaratildi")
 
     def create_table_users(self):
-        """Foydalanuvchilar jadvali"""
+        """Foydalanuvchilar jadvali (YANGILANGAN)"""
         sql = """
         CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +54,13 @@ class UserDatabase(Database):
             full_name VARCHAR(255) NULL,
             phone VARCHAR(20) NULL,
             total_score INTEGER DEFAULT 0,
+
+            -- YANGI QO'SHILGAN USTUNLAR:
+            balance DECIMAL(10, 2) DEFAULT 0.00,
+            referral_code VARCHAR(20) UNIQUE NULL,
+            referred_by INTEGER NULL,
+            referral_count INTEGER DEFAULT 0,
+
             is_active BOOLEAN DEFAULT TRUE,
             is_blocked BOOLEAN DEFAULT FALSE,
             last_active DATETIME NULL,
@@ -62,6 +69,7 @@ class UserDatabase(Database):
         """
         self.execute(sql, commit=True)
         self.execute("CREATE INDEX IF NOT EXISTS idx_users_telegram ON Users(telegram_id);", commit=True)
+
 
     def create_table_admins(self):
         """Adminlar jadvali"""
@@ -423,10 +431,10 @@ class UserDatabase(Database):
         return result[0] if result else None
 
     def get_user(self, telegram_id: int) -> Optional[Dict]:
-        """Foydalanuvchi ma'lumotlarini olish"""
+        """Foydalanuvchi ma'lumotlarini olish (BALANS BILAN)"""
         result = self.execute(
             """SELECT id, telegram_id, username, full_name, phone, total_score, 
-                      is_active, is_blocked, last_active, created_at 
+                      balance, referral_code, is_active, created_at 
                FROM Users WHERE telegram_id = ?""",
             parameters=(telegram_id,),
             fetchone=True
@@ -439,9 +447,9 @@ class UserDatabase(Database):
                 'full_name': result[3],
                 'phone': result[4],
                 'total_score': result[5],
-                'is_active': bool(result[6]),
-                'is_blocked': bool(result[7]),
-                'last_active': result[8],
+                'balance': result[6] or 0.0,  # <-- Balans
+                'referral_code': result[7],  # <-- Referal kod
+                'is_active': bool(result[8]),
                 'created_at': result[9]
             }
         return None
@@ -451,7 +459,8 @@ class UserDatabase(Database):
         if not kwargs:
             return False
 
-        allowed_fields = ['username', 'full_name', 'phone', 'is_active', 'is_blocked']
+        # 'balance' ni ruxsat etilganlar ro'yxatiga qo'shdik
+        allowed_fields = ['username', 'full_name', 'phone', 'is_active', 'is_blocked', 'balance']
         updates = []
         params = []
 
@@ -467,6 +476,22 @@ class UserDatabase(Database):
         sql = f"UPDATE Users SET {', '.join(updates)} WHERE telegram_id = ?"
         self.execute(sql, parameters=tuple(params), commit=True)
         return True
+
+        # YANGI METOD
+    def add_balance(self, telegram_id: int, amount: float) -> bool:
+            """Foydalanuvchi balansiga pul qo'shish"""
+            try:
+                self.execute(
+                    "UPDATE Users SET balance = COALESCE(balance, 0) + ? WHERE telegram_id = ?",
+                    parameters=(amount, telegram_id),
+                    commit=True
+                )
+                return True
+            except Exception as e:
+                print(f"❌ Balans to'ldirishda xato: {e}")
+                return False
+
+
 
     def update_last_active(self, telegram_id: int):
         """Oxirgi faollik vaqtini yangilash"""
@@ -2478,64 +2503,45 @@ class UserDatabase(Database):
             print(f"❌ Referal ro'yxatda xato: {e}")
             return False
 
-    def convert_referral(self, referred_telegram_id: int) -> bool:
+    def convert_referral(self, referred_telegram_id: int, amount_paid: float) -> dict:
         """
-        Referal to'lov qilganda bonus berish
-
-        Args:
-            referred_telegram_id: To'lov qilgan user (taklif qilingan)
+        Referal to'lov qilganda: Cashback (PUL) berish
         """
         referred_id = self.get_user_id(referred_telegram_id)
-        if not referred_id:
-            return False
+        if not referred_id: return {'success': False}
 
-        # Referalni topish
-        result = self.execute(
-            """SELECT r.id, r.referrer_id, r.status, r.bonus_given, u.telegram_id
-               FROM Referrals r
-               JOIN Users u ON r.referrer_id = u.id
-               WHERE r.referred_id = ?""",
-            parameters=(referred_id,),
-            fetchone=True
+        # Refererni topish
+        res = self.execute(
+            """SELECT r.id, r.referrer_id, u.telegram_id 
+               FROM Referrals r 
+               JOIN Users u ON r.referrer_id = u.id 
+               WHERE r.referred_id = ? AND r.status = 'registered'""",
+            (referred_id,), fetchone=True
         )
 
-        if not result:
-            return False
+        if not res: return {'success': False}
 
-        referral_id, referrer_id, status, current_bonus, referrer_telegram_id = result
+        ref_id, referrer_id, referrer_tg_id = res
 
-        # Allaqachon converted bo'lgan bo'lsa
-        if status == 'paid':
-            return False
+        # Cashback hisoblash (Sozlamalardan foizni olamiz)
+        percent = int(self.get_setting('referral_cashback', '10'))
+        cashback = amount_paid * percent / 100
 
         try:
-            # Statusni yangilash
+            # Status update (to'landi deb belgilash)
             self.execute(
-                """UPDATE Referrals 
-                   SET status = 'paid', converted_at = ?
-                   WHERE id = ?""",
-                parameters=(datetime.now(TASHKENT_TZ).isoformat(), referral_id),
-                commit=True
+                "UPDATE Referrals SET status='paid', bonus_given=?, converted_at=? WHERE id=?",
+                (cashback, datetime.now(TASHKENT_TZ).isoformat(), ref_id), commit=True
             )
 
-            # To'lov bonusini berish
-            payment_bonus = int(self.get_setting('referral_bonus_payment', '20'))
-            if payment_bonus > 0:
-                self.add_score(referrer_telegram_id, payment_bonus)
+            # --- O'ZGARISH: BALANSGA PUL QO'SHISH ---
+            self.add_balance(referrer_tg_id, cashback)
+            # ----------------------------------------
 
-                # Umumiy bonusni yangilash
-                new_bonus = (current_bonus or 0) + payment_bonus
-                self.execute(
-                    "UPDATE Referrals SET bonus_given = ? WHERE id = ?",
-                    parameters=(new_bonus, referral_id),
-                    commit=True
-                )
-
-            return True
-
+            return {'success': True, 'referrer_id': referrer_tg_id, 'amount': cashback}
         except Exception as e:
-            print(f"❌ Referal convert xato: {e}")
-            return False
+            print(f"Convert error: {e}")
+            return {'success': False}
 
     def get_user_referrals(self, telegram_id: int) -> List[Dict]:
         """Foydalanuvchi taklif qilgan odamlar ro'yxati"""
