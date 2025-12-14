@@ -374,7 +374,7 @@ async def approve_payment(call: types.CallbackQuery):
     # 6. REFERAL CASHBACK TIZIMI (BARCHA ADMINLARGA XABAR)
     try:
         # Bazadagi convert_referral funksiyasini chaqiramiz
-        ref_result = user_db.convert_referral(payment[1], payment[3])  # user_id, amount
+        ref_result = user_db.convert_referral(payment[6], payment[3]) # payment[6] bu Telegram ID (TO'G'RI)
 
         if ref_result['success']:
             referrer_tg_id = ref_result['referrer_tg_id']
