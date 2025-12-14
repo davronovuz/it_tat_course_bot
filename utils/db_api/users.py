@@ -577,6 +577,25 @@ class UserDatabase(Database):
         )
         return result is not None
 
+        # database/db.py ichiga qo'shing
+
+    def get_notification_admins(self):
+            """Xabar yuborish uchun barcha adminlar (Config + DB)"""
+            # 1. Bazadagi adminlar
+            db_admins = self.execute(
+                "SELECT u.telegram_id FROM Admins a JOIN Users u ON a.user_id = u.id",
+                fetchall=True
+            )
+            admin_ids = [row[0] for row in db_admins] if db_admins else []
+
+            # 2. Config dagi adminlar (import qilingan bo'lishi kerak)
+            from data.config import ADMINS
+            for admin in ADMINS:
+                if admin not in admin_ids:
+                    admin_ids.append(admin)
+
+            return admin_ids
+
     def is_super_admin(self, telegram_id: int) -> bool:
         """Foydalanuvchi super adminmi tekshirish"""
         user_id = self.get_user_id(telegram_id)

@@ -728,9 +728,9 @@ def get_all_lessons_with_status(user_id: int) -> list:
 
 async def notify_admin_new_payment(user: dict, course_id: int, file_id: str, payment_id: int):
     """
-    Adminga yangi to'lov haqida xabar
+    Adminga yangi to'lov haqida xabar (YANGILANGAN)
     """
-    from data.config import ADMINS
+    # Eski importni olib tashlaymiz: from data.config import ADMINS
     from loader import bot
 
     course = user_db.execute(
@@ -746,12 +746,15 @@ async def notify_admin_new_payment(user: dict, course_id: int, file_id: str, pay
     text = f"""
 💰 <b>Yangi to'lov!</b>
 
-👤 Ism: {user.get('full_name', "Nomalum")}
+👤 User: {user.get('full_name', "Nomalum")}
 📱 Tel: {user.get('phone', 'Nomalum')}
 🆔 @{user.get('username') or 'yoq'}
+🆔 ID: <code>{user.get('telegram_id') or user.get('id')}</code>
 
 📚 Kurs: {course_name}
-💵 Summa: {price_text} so'm
+💵 Summa: <b>{price_text} so'm</b>
+
+To'lov ID: #{payment_id}
 """
 
     # Admin keyboard
@@ -762,11 +765,31 @@ async def notify_admin_new_payment(user: dict, course_id: int, file_id: str, pay
         InlineKeyboardButton("❌ Rad etish", callback_data=f"admin:payment:reject:{payment_id}")
     )
 
-    for admin_id in ADMINS:
+    # --- O'ZGARISH SHU YERDA ---
+    # Configdagi adminlarni emas, barcha adminlarni olamiz (DB + Config)
+    # Biz oldinroq db.py ga get_notification_admins funksiyasini qo'shgan edik
+    try:
+        admin_ids = user_db.get_notification_admins()
+    except AttributeError:
+        # Ehtiyot shart: Agar db da funksiya bo'lmasa, eski usulda ishlaydi
+        from data.config import ADMINS
+        admin_ids = ADMINS
+
+    for admin_id in admin_ids:
         try:
-            await bot.send_photo(admin_id, file_id, caption=text, reply_markup=kb)
+            # Fayl turiga qarab yuborish (Rasm yoki Hujjat)
+            # file_id uzunligiga qarab yoki try-except bilan aniqlash mumkin,
+            # lekin odatda user_handlers da aniqlab kelgan ma'qul.
+            # Hozircha oddiy send_photo/document try-except bilan:
+
+            try:
+                await bot.send_photo(admin_id, file_id, caption=text, reply_markup=kb)
+            except:
+                await bot.send_document(admin_id, file_id, caption=text, reply_markup=kb)
+
         except Exception as e:
-            print(f"Admin {admin_id} ga xabar yuborishda xato: {e}")
+            # Admin bloklagan bo'lsa
+            pass
 
 
 
