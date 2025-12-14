@@ -1,13 +1,15 @@
 """
-Admin Broadcast Handler
-=======================
-Ommaviy xabar yuborish handlerlari
+Admin Broadcast Handler (Ultimate Version)
+==========================================
+Birlashtirilgan: Tezkor, Rejalashtiriladigan va Boshqariladigan tizim.
 """
 
+import asyncio
+from datetime import datetime, timedelta
 from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Text
-import asyncio
+from aiogram.utils import exceptions
 
 from loader import dp, bot, user_db
 from keyboards.inline.admin_keyboards import broadcast_menu, back_button
@@ -16,308 +18,293 @@ from keyboards.default.admin_keyboards import admin_cancel_button, admin_confirm
 from states.admin_states import BroadcastStates
 from handlers.admin.admin_start import admin_required
 
+# ============================================================
+#                BROADCAST MANAGER (MOTOR)
+# ============================================================
+# Bu klass xabar tarqatish jarayonini to'liq boshqaradi
+
+active_broadcasts = {}  # Aktiv reklamalarni saqlash uchun
+
+
+class BroadcastCampaign:
+    def __init__(self, campaign_id, users, message_data, creator_id, schedule_time=None):
+        self.id = campaign_id
+        self.users = users  # Userlar ro'yxati (ID lar)
+        self.data = message_data  # Xabar matni, media, tugmalar
+        self.creator_id = creator_id
+        self.schedule_time = schedule_time
+
+        # Statuslar
+        self.running = True
+        self.paused = False
+        self.stopped = False
+
+        # Statistika
+        self.sent = 0
+        self.failed = 0
+        self.blocked = 0
+        self.total = len(users)
+        self.status_msg = None
+
+    async def start(self):
+        """Reklamani ishga tushirish"""
+
+        # 1. Agar vaqt belgilangan bo'lsa, kutamiz
+        if self.schedule_time:
+            now = datetime.now()
+            delay = (self.schedule_time - now).total_seconds()
+            if delay > 0:
+                await bot.send_message(
+                    self.creator_id,
+                    f"⏳ <b>Reklama rejalashtirildi!</b>\n\n"
+                    f"⏰ Yuborish vaqti: {self.schedule_time.strftime('%H:%M')}\n"
+                    f"🆔 ID: #{self.id}"
+                )
+                await asyncio.sleep(delay)
+
+        # 2. Jarayon boshlanishi haqida xabar
+        self.status_msg = await bot.send_message(
+            self.creator_id,
+            self._get_report_text("🚀 Boshlanmoqda..."),
+            reply_markup=self._get_control_keyboard()
+        )
+
+        # 3. Asosiy sikl
+        for i, user_id in enumerate(self.users, 1):
+            # Agar to'xtatilgan bo'lsa
+            if self.stopped:
+                break
+
+            # Agar pauza bo'lsa, kutib turamiz
+            while self.paused:
+                await asyncio.sleep(1)
+                if self.stopped: break
+
+            # Xabar yuborish
+            if isinstance(user_id, (tuple, list)):
+                user_id = user_id[0]  # Bazadan tuple qaytishi mumkin
+
+            success, error = await self._send_safe(user_id)
+
+            if success:
+                self.sent += 1
+            else:
+                if error == "blocked":
+                    self.blocked += 1
+                else:
+                    self.failed += 1
+
+            # Har 20 ta xabarda statistika yangilash
+            if i % 20 == 0:
+                try:
+                    await self.status_msg.edit_text(
+                        self._get_report_text("📤 Yuborilmoqda..."),
+                        reply_markup=self._get_control_keyboard()
+                    )
+                except:
+                    pass
+
+            # Telegram limitlari uchun kichik pauza
+            await asyncio.sleep(0.05)
+
+        # 4. Yakunlash
+        final_status = "⛔️ To'xtatildi" if self.stopped else "✅ Yakunlandi"
+        try:
+            await self.status_msg.edit_text(
+                self._get_report_text(final_status),
+                reply_markup=None  # Tugmalarni olib tashlaymiz
+            )
+        except:
+            pass
+
+        # Ro'yxatdan o'chirish
+        if self.id in active_broadcasts:
+            del active_broadcasts[self.id]
+
+    async def _send_safe(self, user_id):
+        """Xavfsiz xabar yuborish funksiyasi"""
+        try:
+            text = self.data.get('text')
+            media_type = self.data.get('media_type')
+            media_id = self.data.get('media_id')
+            keyboard = self.data.get('keyboard')
+
+            if media_type == 'photo':
+                await bot.send_photo(user_id, media_id, caption=text, reply_markup=keyboard)
+            elif media_type == 'video':
+                await bot.send_video(user_id, media_id, caption=text, reply_markup=keyboard)
+            else:
+                await bot.send_message(user_id, text, reply_markup=keyboard, disable_web_page_preview=True)
+            return True, None
+
+        except exceptions.BotBlocked:
+            return False, "blocked"
+        except exceptions.UserDeactivated:
+            return False, "blocked"
+        except exceptions.RetryAfter as e:
+            await asyncio.sleep(e.timeout)
+            return await self._send_safe(user_id)
+        except Exception as e:
+            return False, str(e)
+
+    def _get_report_text(self, status):
+        progress = self.sent + self.failed + self.blocked
+        percent = (progress / self.total * 100) if self.total > 0 else 0
+
+        return (
+            f"📢 <b>Reklama #{self.id}</b>\n\n"
+            f"📊 Holat: <b>{status}</b>\n"
+            f"📈 Progress: {progress}/{self.total} ({percent:.1f}%)\n\n"
+            f"✅ Yetib bordi: {self.sent}\n"
+            f"🚫 Bloklagan: {self.blocked}\n"
+            f"❌ Xatolik: {self.failed}"
+        )
+
+    def _get_control_keyboard(self):
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        if self.paused:
+            keyboard.insert(
+                types.InlineKeyboardButton("▶️ Davom ettirish", callback_data=f"broadcast:resume:{self.id}"))
+        else:
+            keyboard.insert(types.InlineKeyboardButton("⏸ Pauza", callback_data=f"broadcast:pause:{self.id}"))
+
+        keyboard.insert(types.InlineKeyboardButton("⛔️ To'xtatish", callback_data=f"broadcast:stop:{self.id}"))
+        return keyboard
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
+    def stop(self):
+        self.stopped = True
+        self.paused = False  # Loopdan chiqish uchun
+
 
 # ============================================================
-#                    BROADCAST MENYUSI
+#                    MENYULAR & TAYYORGARLIK
 # ============================================================
 
 @dp.message_handler(Text(equals="📢 Reklama"))
 @admin_required
 async def broadcast_menu_message(message: types.Message):
-    total_users = user_db.execute("SELECT COUNT(*) FROM Users", fetchone=True)
-    paid_users = user_db.execute(
-        "SELECT COUNT(DISTINCT user_id) FROM Payments WHERE status = 'approved'",
-        fetchone=True
-    )
+    await show_broadcast_main_menu(message)
 
-    total = total_users[0] if total_users else 0
-    paid = paid_users[0] if paid_users else 0
-
-    text = f"""
-📢 <b>Ommaviy xabar yuborish</b>
-
-👥 Jami: <b>{total}</b>
-💰 Pullik: <b>{paid}</b>
-🆓 Bepul: <b>{total - paid}</b>
-"""
-
-    await message.answer(text, reply_markup=broadcast_menu())
 
 @dp.callback_query_handler(text="admin:broadcast")
 @admin_required
-async def show_broadcast_menu(call: types.CallbackQuery):
-    """Broadcast menyusi"""
+async def show_broadcast_menu_query(call: types.CallbackQuery):
+    await show_broadcast_main_menu(call.message, edit=True)
 
-    # Statistika
-    total_users = user_db.execute("SELECT COUNT(*) FROM Users", fetchone=True)
-    paid_users = user_db.execute(
-        "SELECT COUNT(DISTINCT user_id) FROM Payments WHERE status = 'approved'",
-        fetchone=True
-    )
 
-    total = total_users[0] if total_users else 0
-    paid = paid_users[0] if paid_users else 0
-    free = total - paid
+async def show_broadcast_main_menu(message: types.Message, edit=False):
+    total = user_db.execute("SELECT COUNT(*) FROM Users", fetchone=True)[0]
+    paid = user_db.execute("SELECT COUNT(DISTINCT user_id) FROM Payments WHERE status = 'approved'", fetchone=True)[0]
 
     text = f"""
-📢 <b>Ommaviy xabar yuborish</b>
+📢 <b>Ommaviy xabar yuborish (Mukammal Tizim)</b>
 
-👥 <b>Foydalanuvchilar:</b>
-├ Jami: <b>{total}</b>
-├ Pullik: <b>{paid}</b>
-└ Bepul: <b>{free}</b>
+👥 Jami userlar: <b>{total}</b>
+💰 Pullik obunachilar: <b>{paid}</b>
+🆓 Bepul userlar: <b>{total - paid}</b>
 
-⬇️ Kimga yubormoqchisiz?
+⬇️ <b>Kimga yubormoqchisiz?</b>
 """
+    if edit:
+        await message.edit_text(text, reply_markup=broadcast_menu())
+    else:
+        await message.answer(text, reply_markup=broadcast_menu())
 
-    await call.message.edit_text(text, reply_markup=broadcast_menu())
-    await call.answer()
 
+# --- Target Selection ---
 
-# ============================================================
-#                    BARCHAGA YUBORISH
-# ============================================================
-
-@dp.callback_query_handler(text="admin:broadcast:all")
+@dp.callback_query_handler(text_startswith="admin:broadcast:")
 @admin_required
-async def broadcast_all_start(call: types.CallbackQuery, state: FSMContext):
-    """Barchaga xabar - boshlash"""
+async def start_broadcast_wizard(call: types.CallbackQuery, state: FSMContext):
+    target_type = call.data.split(":")[-1]
 
-    total = user_db.execute("SELECT COUNT(*) FROM Users", fetchone=True)
-
-    await state.update_data(
-        target='all',
-        target_name='Barcha foydalanuvchilar',
-        target_count=total[0] if total else 0
-    )
-
-    await call.message.edit_text(
-        f"📢 <b>Barchaga xabar yuborish</b>\n\n"
-        f"👥 Qabul qiluvchilar: <b>{total[0] if total else 0}</b> ta\n\n"
-        f"📝 Xabar matnini kiriting:"
-    )
-
-    await call.message.answer(
-        "✍️ Xabar yozing:",
-        reply_markup=admin_cancel_button()
-    )
-
-    await BroadcastStates.message_text.set()
-    await call.answer()
-
-
-# ============================================================
-#                    PULLIK FOYDALANUVCHILARGA
-# ============================================================
-
-@dp.callback_query_handler(text="admin:broadcast:paid")
-@admin_required
-async def broadcast_paid_start(call: types.CallbackQuery, state: FSMContext):
-    """Pullik foydalanuvchilarga xabar"""
-
-    count = user_db.execute(
-        "SELECT COUNT(DISTINCT user_id) FROM Payments WHERE status = 'approved'",
-        fetchone=True
-    )
-
-    if not count or count[0] == 0:
-        await call.answer("📭 Pullik foydalanuvchilar yo'q", show_alert=True)
+    if target_type == "course":
+        # Kurs tanlash logikasi
+        courses = user_db.get_all_courses(active_only=True)
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        for c in courses:
+            count = \
+            user_db.execute("SELECT COUNT(DISTINCT user_id) FROM Payments WHERE course_id=? AND status='approved'",
+                            (c['id'],), fetchone=True)[0]
+            kb.add(types.InlineKeyboardButton(f"{c['name']} ({count})", callback_data=f"admin:bc_course:{c['id']}"))
+        kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:broadcast"))
+        await call.message.edit_text("📚 Kursni tanlang:", reply_markup=kb)
         return
 
-    await state.update_data(
-        target='paid',
-        target_name='Pullik foydalanuvchilar',
-        target_count=count[0]
-    )
+    # Userlarni hisoblash
+    count = 0
+    target_name = ""
 
-    await call.message.edit_text(
-        f"📢 <b>Pullik foydalanuvchilarga xabar</b>\n\n"
-        f"👥 Qabul qiluvchilar: <b>{count[0]}</b> ta\n\n"
-        f"📝 Xabar matnini kiriting:"
-    )
-
-    await call.message.answer(
-        "✍️ Xabar yozing:",
-        reply_markup=admin_cancel_button()
-    )
-
-    await BroadcastStates.message_text.set()
-    await call.answer()
-
-
-# ============================================================
-#                    BEPUL FOYDALANUVCHILARGA
-# ============================================================
-
-@dp.callback_query_handler(text="admin:broadcast:free")
-@admin_required
-async def broadcast_free_start(call: types.CallbackQuery, state: FSMContext):
-    """Bepul foydalanuvchilarga xabar"""
-
-    count = user_db.execute(
-        """SELECT COUNT(*) FROM Users u
-           WHERE NOT EXISTS (
-               SELECT 1 FROM Payments p 
-               WHERE p.user_id = u.id AND p.status = 'approved'
-           )""",
-        fetchone=True
-    )
-
-    if not count or count[0] == 0:
-        await call.answer("📭 Bepul foydalanuvchilar yo'q", show_alert=True)
-        return
-
-    await state.update_data(
-        target='free',
-        target_name='Bepul foydalanuvchilar',
-        target_count=count[0]
-    )
-
-    await call.message.edit_text(
-        f"📢 <b>Bepul foydalanuvchilarga xabar</b>\n\n"
-        f"👥 Qabul qiluvchilar: <b>{count[0]}</b> ta\n\n"
-        f"📝 Xabar matnini kiriting:"
-    )
-
-    await call.message.answer(
-        "✍️ Xabar yozing:",
-        reply_markup=admin_cancel_button()
-    )
-
-    await BroadcastStates.message_text.set()
-    await call.answer()
-
-
-# ============================================================
-#                    KURS BO'YICHA
-# ============================================================
-
-@dp.callback_query_handler(text="admin:broadcast:course")
-@admin_required
-async def broadcast_course_select(call: types.CallbackQuery, state: FSMContext):
-    """Kurs tanlash"""
-
-    courses = user_db.get_all_courses(active_only=True)
-
-    if not courses:
-        await call.answer("📭 Kurslar yo'q", show_alert=True)
-        return
-
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
-
-    for course in courses:
-        # O'quvchilar soni
+    if target_type == "all":
+        count = user_db.execute("SELECT COUNT(*) FROM Users", fetchone=True)[0]
+        target_name = "Barchaga"
+    elif target_type == "paid":
+        count = user_db.execute("SELECT COUNT(DISTINCT user_id) FROM Payments WHERE status='approved'", fetchone=True)[
+            0]
+        target_name = "Pullik obunachilarga"
+    elif target_type == "free":
         count = user_db.execute(
-            """SELECT COUNT(DISTINCT user_id) FROM Payments 
-               WHERE course_id = ? AND status = 'approved'""",
-            parameters=(course['id'],),
-            fetchone=True
-        )
+            "SELECT COUNT(*) FROM Users u WHERE NOT EXISTS (SELECT 1 FROM Payments p WHERE p.user_id=u.id AND p.status='approved')",
+            fetchone=True)[0]
+        target_name = "Bepul foydalanuvchilarga"
 
-        keyboard.add(types.InlineKeyboardButton(
-            f"📚 {course['name']} ({count[0] if count else 0} ta)",
-            callback_data=f"admin:broadcast:course:{course['id']}"
-        ))
-
-    keyboard.add(types.InlineKeyboardButton(
-        "⬅️ Orqaga",
-        callback_data="admin:broadcast"
-    ))
-
-    await call.message.edit_text(
-        "📚 <b>Kurs tanlang</b>\n\n"
-        "Qaysi kurs o'quvchilariga xabar yubormoqchisiz?",
-        reply_markup=keyboard
-    )
-    await call.answer()
-
-
-@dp.callback_query_handler(text_startswith="admin:broadcast:course:")
-@admin_required
-async def broadcast_course_start(call: types.CallbackQuery, state: FSMContext):
-    """Kurs o'quvchilariga xabar"""
-    course_id = int(call.data.split(":")[-1])
-
-    course = user_db.get_course(course_id)
-
-    if not course:
-        await call.answer("❌ Kurs topilmadi!", show_alert=True)
+    if count == 0:
+        await call.answer("📭 Foydalanuvchilar yo'q!", show_alert=True)
         return
 
-    count = user_db.execute(
-        """SELECT COUNT(DISTINCT user_id) FROM Payments 
-           WHERE course_id = ? AND status = 'approved'""",
-        parameters=(course_id,),
-        fetchone=True
-    )
-
-    if not count or count[0] == 0:
-        await call.answer("📭 Bu kursda o'quvchilar yo'q", show_alert=True)
-        return
-
-    await state.update_data(
-        target='course',
-        target_id=course_id,
-        target_name=f"'{course['name']}' kursi o'quvchilari",
-        target_count=count[0]
-    )
+    await state.update_data(target=target_type, count=count, target_name=target_name)
 
     await call.message.edit_text(
-        f"📢 <b>Kurs o'quvchilariga xabar</b>\n\n"
-        f"📚 Kurs: {course['name']}\n"
-        f"👥 Qabul qiluvchilar: <b>{count[0]}</b> ta\n\n"
-        f"📝 Xabar matnini kiriting:"
+        f"📢 <b>{target_name}</b>\n"
+        f"👥 Qabul qiluvchilar: {count} ta\n\n"
+        f"📝 <b>Xabar matnini yuboring:</b>"
     )
-
-    await call.message.answer(
-        "✍️ Xabar yozing:",
-        reply_markup=admin_cancel_button()
-    )
-
     await BroadcastStates.message_text.set()
-    await call.answer()
+
+
+@dp.callback_query_handler(text_startswith="admin:bc_course:")
+@admin_required
+async def course_broadcast_selected(call: types.CallbackQuery, state: FSMContext):
+    course_id = int(call.data.split(":")[-1])
+    course = user_db.get_course(course_id)
+    count = user_db.execute("SELECT COUNT(DISTINCT user_id) FROM Payments WHERE course_id=? AND status='approved'",
+                            (course_id,), fetchone=True)[0]
+
+    if count == 0:
+        await call.answer("📭 Bu kursda o'quvchi yo'q", show_alert=True)
+        return
+
+    await state.update_data(target="course", target_id=course_id, count=count,
+                            target_name=f"{course['name']} o'quvchilari")
+    await call.message.edit_text(
+        f"📢 <b>{course['name']} kursi</b>\n"
+        f"👥 O'quvchilar: {count} ta\n\n"
+        f"📝 <b>Xabar matnini yuboring:</b>"
+    )
+    await BroadcastStates.message_text.set()
 
 
 # ============================================================
-#                    XABAR MATNI
+#                    CONTENT INPUT
 # ============================================================
 
-@dp.message_handler(state=BroadcastStates.message_text)
-async def broadcast_text(message: types.Message, state: FSMContext):
-    """Xabar matnini qabul qilish"""
+@dp.message_handler(state=BroadcastStates.message_text, content_types=types.ContentType.ANY)
+async def receive_text_or_media(message: types.Message, state: FSMContext):
     if message.text == "❌ Bekor qilish":
         await state.finish()
         await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
         return
 
-    text = message.text.strip()
-
-    if len(text) < 5:
-        await message.answer("❌ Xabar juda qisqa!")
-        return
-
-    if len(text) > 4000:
-        await message.answer("❌ Xabar juda uzun! 4000 belgidan kam bo'lsin.")
-        return
-
-    await state.update_data(message_text=text)
-
-    await message.answer(
-        "📸 Rasm yoki video qo'shmoqchimisiz?\n\n"
-        "Media yuboring yoki o'tkazib yuboring:",
-        reply_markup=admin_skip_button()
-    )
-
-    await BroadcastStates.message_media.set()
-
-
-# ============================================================
-#                    MEDIA
-# ============================================================
-
-@dp.message_handler(state=BroadcastStates.message_media, content_types=['photo', 'video'])
-async def broadcast_media(message: types.Message, state: FSMContext):
-    """Media qabul qilish"""
+    # Matn va Media aniqlash
+    text = message.caption or message.text or ""
+    media_type = None
+    media_id = None
 
     if message.photo:
         media_type = 'photo'
@@ -325,162 +312,190 @@ async def broadcast_media(message: types.Message, state: FSMContext):
     elif message.video:
         media_type = 'video'
         media_id = message.video.file_id
-    else:
-        await message.answer("❌ Faqat rasm yoki video yuboring!")
-        return
 
-    await state.update_data(
-        media_type=media_type,
-        media_id=media_id
+    await state.update_data(text=text, media_type=media_type, media_id=media_id)
+
+    await message.answer(
+        "🔘 <b>Tugma qo'shasizmi?</b>\n\n"
+        "Format: <code>Tugma nomi - https://manzil.uz</code>\n"
+        "Masalan: <code>Kanalga o'tish - https://t.me/kanal</code>\n\n"
+        "Agar kerak bo'lmasa, <b>⏩ O'tkazib yuborish</b> ni bosing.",
+        reply_markup=admin_skip_button()
     )
-
-    # Tasdiqlash
-    await show_broadcast_confirm(message, state)
+    await BroadcastStates.buttons.set()
 
 
-@dp.message_handler(state=BroadcastStates.message_media)
-async def broadcast_skip_media(message: types.Message, state: FSMContext):
-    """Media o'tkazib yuborish"""
-    if message.text == "❌ Bekor qilish":
-        await state.finish()
-        await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
-        return
+@dp.message_handler(state=BroadcastStates.buttons)
+async def receive_buttons(message: types.Message, state: FSMContext):
+    keyboard = None
 
-    if message.text == "⏩ O'tkazib yuborish":
-        await state.update_data(media_type=None, media_id=None)
-        await show_broadcast_confirm(message, state)
+    if message.text != "⏩ O'tkazib yuborish" and message.text != "❌ Bekor qilish":
+        try:
+            keyboard = types.InlineKeyboardMarkup(row_width=1)
+            # Bir nechta tugma bo'lishi mumkin (vergul bilan)
+            raw_buttons = message.text.split(',')
+            for raw in raw_buttons:
+                parts = raw.split('-')
+                if len(parts) != 2: raise ValueError
+                name = parts[0].strip()
+                url = parts[1].strip()
+                if not url.startswith('http'): url = f"https://{url}"
+                keyboard.add(types.InlineKeyboardButton(name, url=url))
+        except:
+            await message.reply("❌ Xato format! Qaytadan yozing yoki o'tkazib yuboring.")
+            return
+
+    await state.update_data(keyboard=keyboard)
+
+    # Vaqtni so'rash
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🚀 Hozir yuborish", callback_data="time:now"))
+    kb.add(types.InlineKeyboardButton("⏰ Keyinroq (Vaqt belgilash)", callback_data="time:later"))
+
+    await message.answer("⏳ <b>Qachon yuborilsin?</b>", reply_markup=kb)
+    await BroadcastStates.time.set()
+
+
+# ============================================================
+#                    VAQT VA TASDIQLASH
+# ============================================================
+
+@dp.callback_query_handler(state=BroadcastStates.time)
+async def choose_time(call: types.CallbackQuery, state: FSMContext):
+    if call.data == "time:now":
+        await confirm_broadcast(call, state)
     else:
-        await message.answer("⏩ O'tkazib yuborish yoki media yuboring")
+        await call.message.edit_text("⏰ Vaqtni <b>HH:MM</b> formatda yozing (Masalan: 14:30):")
+        await BroadcastStates.custom_time.set()
 
 
-# ============================================================
-#                    TASDIQLASH
-# ============================================================
+@dp.message_handler(state=BroadcastStates.custom_time)
+async def receive_custom_time(message: types.Message, state: FSMContext):
+    try:
+        # Vaqtni pars qilish
+        time_str = message.text.strip()
+        now = datetime.now()
+        target_time = datetime.strptime(time_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
 
-async def show_broadcast_confirm(message: types.Message, state: FSMContext):
-    """Tasdiqlash ko'rsatish"""
+        # Agar vaqt o'tib ketgan bo'lsa, ertangi kunga o'tkazamiz
+        if target_time < now:
+            target_time += timedelta(days=1)
+
+        await state.update_data(schedule_time=target_time)
+        await confirm_broadcast(message, state, manual_msg=True)
+
+    except ValueError:
+        await message.reply("❌ Noto'g'ri format! HH:MM shaklida yozing (Masalan: 20:00)")
+
+
+async def confirm_broadcast(obj, state: FSMContext, manual_msg=False):
     data = await state.get_data()
+    schedule_time = data.get('schedule_time')
+
+    time_text = schedule_time.strftime("%d-%m %H:%M") if schedule_time else "Hozir"
 
     text = f"""
-📢 <b>Xabar yuborishni tasdiqlang</b>
+📢 <b>Tasdiqlash</b>
 
-👥 <b>Kimga:</b> {data['target_name']}
-📊 <b>Soni:</b> {data['target_count']} ta
-📎 <b>Media:</b> {'Bor' if data.get('media_type') else 'Yoq'}
+🎯 <b>Kimga:</b> {data['target_name']}
+📊 <b>Soni:</b> {data['count']} ta
+⏳ <b>Vaqt:</b> {time_text}
 
-📝 <b>Xabar:</b>
-{data['message_text'][:500]}{'...' if len(data['message_text']) > 500 else ''}
-
-✅ Yuborishni tasdiqlaysizmi?
+📝 <b>Matn:</b> {data['text'][:100]}...
 """
+    # Preview
+    msg = obj if manual_msg else obj.message
 
-    await message.answer(text, reply_markup=admin_confirm_keyboard())
+    if data.get('media_type') == 'photo':
+        await bot.send_photo(msg.chat.id, data['media_id'], caption=text, reply_markup=admin_confirm_keyboard())
+    elif data.get('media_type') == 'video':
+        await bot.send_video(msg.chat.id, data['media_id'], caption=text, reply_markup=admin_confirm_keyboard())
+    else:
+        await bot.send_message(msg.chat.id, text, reply_markup=admin_confirm_keyboard())
+
     await BroadcastStates.confirm.set()
 
 
 @dp.message_handler(state=BroadcastStates.confirm)
-async def broadcast_confirm(message: types.Message, state: FSMContext):
-    """Yuborishni tasdiqlash"""
-    if message.text == "❌ Yo'q" or message.text == "❌ Bekor qilish":
+async def execute_broadcast(message: types.Message, state: FSMContext):
+    if message.text != "✅ Ha":
         await state.finish()
         await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
         return
 
-    if message.text != "✅ Ha":
-        await message.answer("✅ Ha yoki ❌ Yo'q tugmasini bosing")
-        return
-
     data = await state.get_data()
-
     await state.finish()
 
-    # Foydalanuvchilarni olish
-    if data['target'] == 'all':
+    # 1. Userlarni bazadan olish
+    users = []
+    if data['target'] == "all":
+        users = user_db.execute("SELECT telegram_id FROM Users", fetchall=True)
+    elif data['target'] == "paid":
         users = user_db.execute(
-            "SELECT telegram_id FROM Users",
-            fetchall=True
-        )
-    elif data['target'] == 'paid':
+            "SELECT DISTINCT u.telegram_id FROM Users u JOIN Payments p ON u.id=p.user_id WHERE p.status='approved'",
+            fetchall=True)
+    elif data['target'] == "free":
         users = user_db.execute(
-            """SELECT DISTINCT u.telegram_id FROM Users u
-               JOIN Payments p ON u.id = p.user_id
-               WHERE p.status = 'approved'""",
-            fetchall=True
-        )
-    elif data['target'] == 'free':
+            "SELECT telegram_id FROM Users u WHERE NOT EXISTS (SELECT 1 FROM Payments p WHERE p.user_id=u.id AND p.status='approved')",
+            fetchall=True)
+    elif data['target'] == "course":
         users = user_db.execute(
-            """SELECT telegram_id FROM Users u
-               WHERE NOT EXISTS (
-                   SELECT 1 FROM Payments p 
-                   WHERE p.user_id = u.id AND p.status = 'approved'
-               )""",
-            fetchall=True
-        )
-    elif data['target'] == 'course':
-        users = user_db.execute(
-            """SELECT DISTINCT u.telegram_id FROM Users u
-               JOIN Payments p ON u.id = p.user_id
-               WHERE p.course_id = ? AND p.status = 'approved'""",
-            parameters=(data['target_id'],),
-            fetchall=True
-        )
-    else:
-        users = []
+            "SELECT DISTINCT u.telegram_id FROM Users u JOIN Payments p ON u.id=p.user_id WHERE p.course_id=? AND p.status='approved'",
+            (data['target_id'],), fetchall=True)
 
     if not users:
-        await message.answer("📭 Foydalanuvchilar topilmadi!", reply_markup=remove_keyboard())
+        await message.answer("❌ Xatolik: Userlar topilmadi.")
         return
 
-    # Yuborish
-    progress_msg = await message.answer(
-        f"📤 Yuborilmoqda...\n"
-        f"0/{len(users)}",
-        reply_markup=remove_keyboard()
+    # Listga o'tkazish
+    user_ids = [u[0] for u in users]
+
+    # 2. Campaign yaratish
+    campaign_id = len(active_broadcasts) + 1
+    campaign = BroadcastCampaign(
+        campaign_id=campaign_id,
+        users=user_ids,
+        message_data=data,
+        creator_id=message.chat.id,
+        schedule_time=data.get('schedule_time')
     )
 
-    success = 0
-    failed = 0
+    # 3. Global ro'yxatga qo'shish va ishga tushirish
+    active_broadcasts[campaign_id] = campaign
 
-    for i, user in enumerate(users, 1):
-        try:
-            if data.get('media_type') == 'photo':
-                await bot.send_photo(
-                    user[0],
-                    data['media_id'],
-                    caption=data['message_text']
-                )
-            elif data.get('media_type') == 'video':
-                await bot.send_video(
-                    user[0],
-                    data['media_id'],
-                    caption=data['message_text']
-                )
-            else:
-                await bot.send_message(user[0], data['message_text'])
+    await message.answer("✅ Qabul qilindi!", reply_markup=remove_keyboard())
 
-            success += 1
-        except Exception as e:
-            failed += 1
+    # Orqa fonda ishga tushirish
+    asyncio.create_task(campaign.start())
 
-        # Har 10 ta xabarda progress yangilash
-        if i % 10 == 0 or i == len(users):
-            try:
-                await progress_msg.edit_text(
-                    f"📤 Yuborilmoqda...\n"
-                    f"{i}/{len(users)}\n\n"
-                    f"✅ Muvaffaqiyatli: {success}\n"
-                    f"❌ Xato: {failed}"
-                )
-            except:
-                pass
 
-        # Telegram limitlarini hurmat qilish
-        await asyncio.sleep(0.05)  # 20 ta/sekund
+# ============================================================
+#                    CONTROL HANDLERS (CALLBACKS)
+# ============================================================
 
-    # Yakuniy natija
-    await progress_msg.edit_text(
-        f"📢 <b>Xabar yuborildi!</b>\n\n"
-        f"👥 Jami: {len(users)}\n"
-        f"✅ Muvaffaqiyatli: {success}\n"
-        f"❌ Xato: {failed}"
-    )
+@dp.callback_query_handler(text_startswith="broadcast:")
+async def control_broadcast(call: types.CallbackQuery):
+    action, campaign_id = call.data.split(":")[1:]
+    campaign_id = int(campaign_id)
+
+    campaign = active_broadcasts.get(campaign_id)
+
+    if not campaign:
+        await call.answer("⚠️ Bu reklama allaqachon tugagan yoki topilmadi.", show_alert=True)
+        return
+
+    if action == "pause":
+        campaign.pause()
+        await call.answer("⏸ Pauza qilindi")
+    elif action == "resume":
+        campaign.resume()
+        await call.answer("▶️ Davom ettirilmoqda")
+    elif action == "stop":
+        campaign.stop()
+        await call.answer("⛔️ To'xtatildi")
+
+    # Klaviaturani yangilash (Xabar o'zi loop ichida yangilanadi, lekin biz darhol reaksiya beramiz)
+    try:
+        await campaign.status_msg.edit_reply_markup(reply_markup=campaign._get_control_keyboard())
+    except:
+        pass
