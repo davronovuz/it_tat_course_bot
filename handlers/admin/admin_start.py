@@ -54,11 +54,18 @@ def admin_required(func):
 # ============================================================
 #                    ADMIN PANEL KIRISH
 # ============================================================
-
 @dp.message_handler(Command("admin"))
 async def admin_panel_command(message: types.Message, state: FSMContext):
     """Admin panel /admin buyrug'i"""
     telegram_id = message.from_user.id
+
+    # ✅ DEBUG
+    from data.config import ADMINS
+    print(f"DEBUG admin_panel_command:")
+    print(f"  telegram_id: {telegram_id}")
+    print(f"  ADMINS: {ADMINS}")
+    print(f"  in ADMINS: {telegram_id in ADMINS}")
+    print(f"  is_admin: {user_db.is_admin(telegram_id)}")
 
     # Admin tekshirish
     if not user_db.is_admin(telegram_id):
