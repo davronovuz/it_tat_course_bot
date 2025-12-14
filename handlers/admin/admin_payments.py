@@ -290,6 +290,7 @@ async def view_receipt(call: types.CallbackQuery):
 #                    TO'LOVNI TASDIQLASH (TO'LIQ)
 # ============================================================
 
+
 @dp.callback_query_handler(text_startswith="admin:payment:approve:")
 @admin_required
 async def approve_payment(call: types.CallbackQuery):
@@ -316,9 +317,6 @@ async def approve_payment(call: types.CallbackQuery):
         except:
             pass
         return
-
-    # payment: 0-id, 1-user_id, 2-course_id, 3-amount, 4-receipt_file_id,
-    #          5-status, 6-telegram_id, 7-course_name, 8-admin_id
 
     # 2. STATUS TEKSHIRISH (POYGA SHARTI)
     if payment[5] != 'pending':
@@ -373,67 +371,63 @@ async def approve_payment(call: types.CallbackQuery):
     except Exception as e:
         print(f"Foydalanuvchiga xabar yuborishda xato: {e}")
 
-    # 6. REFERAL CASHBACK TIZIMI (TO'LIQ)
+    # 6. REFERAL CASHBACK TIZIMI (BARCHA ADMINLARGA XABAR)
     try:
-        referred_user_id = payment[1]  # user_id
+        # Bazadagi convert_referral funksiyasini chaqiramiz
+        ref_result = user_db.convert_referral(payment[1], payment[3])  # user_id, amount
 
-        # Refererni qidiramiz
-        referral = user_db.execute(
-            """SELECT u.telegram_id, u.full_name, r.referrer_id
-               FROM Referrals r
-               JOIN Users u ON r.referrer_id = u.id
-               WHERE r.referred_id = ? AND r.status = 'registered'""",
-            parameters=(referred_user_id,),
-            fetchone=True
-        )
+        if ref_result['success']:
+            referrer_tg_id = ref_result['referrer_tg_id']
+            referrer_name = ref_result['referrer_name']
+            referrer_phone = ref_result['referrer_phone']
+            cashback_amount = ref_result['amount']
 
-        if referral:
-            referrer_telegram_id = referral[0]
-            referrer_name = referral[1] or "Foydalanuvchi"
-            referrer_id = referral[2]
+            cashback_text = f"{cashback_amount:,.0f}".replace(",", " ")
 
-            # Cashback foizini va summani hisoblash
-            cashback_percent = int(user_db.get_setting('referral_cashback', '10'))
-            amount = payment[3]
-            cashback_amount = int(amount * cashback_percent / 100)
-            cashback_text = f"{cashback_amount:,}".replace(",", " ")
-
-            # Bazani yangilash (Status: paid)
-            user_db.execute(
-                """UPDATE Referrals 
-                   SET status = 'paid', bonus_given = ?, converted_at = datetime('now')
-                   WHERE referred_id = ? AND status = 'registered'""",
-                parameters=(cashback_amount, referred_user_id),
-                commit=True
-            )
-
-            # Refererga (taklif qiluvchiga) ball yoki pul qo'shish
-            # Bu yerda total_score ga qo'shilyapti, agar balans bo'lsa balance ga qo'shing
-            user_db.add_score(referrer_telegram_id, cashback_amount)
-
-            # Taklif qiluvchiga xabar
+            # ----------------------------------------------------
+            # A) FOYDALANUVCHIGA (TAKLIF QILGANGA) XABAR
+            # ----------------------------------------------------
             try:
                 await bot.send_message(
-                    referrer_telegram_id,
+                    referrer_tg_id,
                     f"🎉 <b>Tabriklaymiz!</b>\n\n"
                     f"Siz taklif qilgan do'stingiz kurs sotib oldi!\n\n"
-                    f"💰 Sizga <b>{cashback_text} so'm</b> (cashback) taqdim etildi!\n"
-                    f"📞 Tez orada adminlar siz bilan bog'lanishadi."
+                    f"💰 Sizga <b>{cashback_text} so'm</b> mukofot yozildi.\n\n"
+                    f"📞 Tez orada adminlarimiz siz bilan bog'lanib, ushbu mablag'ni kartangizga o'tkazib berishadi."
                 )
             except:
-                pass
+                pass  # Botni bloklagan bo'lsa
 
-            # Adminga qo'shimcha eslatma (shart emas, lekin foydali)
-            await call.message.answer(
-                f"💰 <b>Referal Cashback</b>\n\n"
-                f"👤 Taklif qiluvchi: {referrer_name}\n"
-                f"🆔 ID: <code>{referrer_telegram_id}</code>\n"
-                f"💵 Bonus: <b>{cashback_text} so'm</b>"
+            # ----------------------------------------------------
+            # B) BARCHA ADMINLARGA CASHBACK ESLATMASI
+            # ----------------------------------------------------
+            admin_alert = (
+                f"⚠️ <b>DIQQAT! CASHBACK TO'LASH KERAK!</b>\n\n"
+                f"👤 Kimga: <b>{referrer_name}</b>\n"
+                f"📞 Tel: <code>{referrer_phone}</code>\n"
+                f"🆔 ID: <code>{referrer_tg_id}</code>\n\n"
+                f"💵 To'lanishi kerak: <b>{cashback_text} so'm</b>\n\n"
+                f"<i>Iltimos, ushbu foydalanuvchi bilan bog'lanib, pulni kartasiga tashlab bering.</i>"
             )
+
+            # Hozirgi admin (knopkani bosgan) uchun oddiy javob
+            await call.message.answer(admin_alert)
+
+            # Qolgan barcha adminlarga ham yuboramiz
+            try:
+                all_admins = user_db.get_notification_admins()
+                for admin_id in all_admins:
+                    # O'zi o'ziga qayta yubormasligi uchun tekshiramiz
+                    if admin_id != call.from_user.id:
+                        try:
+                            await bot.send_message(admin_id, admin_alert)
+                        except:
+                            pass  # Admin bloklagan bo'lsa
+            except Exception as e:
+                print(f"Adminlarga cashback xabarini yuborishda xato: {e}")
 
     except Exception as e:
         print(f"Referal tizimida xato: {e}")
-
 
 # ============================================================
 #                    TO'LOVNI RAD ETISH (TO'LIQ)

@@ -2503,45 +2503,50 @@ class UserDatabase(Database):
             print(f"❌ Referal ro'yxatda xato: {e}")
             return False
 
+
+
     def convert_referral(self, referred_telegram_id: int, amount_paid: float) -> dict:
-        """
-        Referal to'lov qilganda: Cashback (PUL) berish
-        """
-        referred_id = self.get_user_id(referred_telegram_id)
-        if not referred_id: return {'success': False}
+            """
+            Referal to'lov qilganda: Cashback hisoblash (Balansga qo'shilmaydi)
+            """
+            referred_id = self.get_user_id(referred_telegram_id)
+            if not referred_id: return {'success': False}
 
-        # Refererni topish
-        res = self.execute(
-            """SELECT r.id, r.referrer_id, u.telegram_id 
-               FROM Referrals r 
-               JOIN Users u ON r.referrer_id = u.id 
-               WHERE r.referred_id = ? AND r.status = 'registered'""",
-            (referred_id,), fetchone=True
-        )
-
-        if not res: return {'success': False}
-
-        ref_id, referrer_id, referrer_tg_id = res
-
-        # Cashback hisoblash (Sozlamalardan foizni olamiz)
-        percent = int(self.get_setting('referral_cashback', '10'))
-        cashback = amount_paid * percent / 100
-
-        try:
-            # Status update (to'landi deb belgilash)
-            self.execute(
-                "UPDATE Referrals SET status='paid', bonus_given=?, converted_at=? WHERE id=?",
-                (cashback, datetime.now(TASHKENT_TZ).isoformat(), ref_id), commit=True
+            # Refererni topish
+            res = self.execute(
+                """SELECT r.id, r.referrer_id, u.telegram_id, u.full_name, u.phone 
+                   FROM Referrals r 
+                   JOIN Users u ON r.referrer_id = u.id 
+                   WHERE r.referred_id = ? AND r.status = 'registered'""",
+                (referred_id,), fetchone=True
             )
 
-            # --- O'ZGARISH: BALANSGA PUL QO'SHISH ---
-            self.add_balance(referrer_tg_id, cashback)
-            # ----------------------------------------
+            if not res: return {'success': False}
 
-            return {'success': True, 'referrer_id': referrer_tg_id, 'amount': cashback}
-        except Exception as e:
-            print(f"Convert error: {e}")
-            return {'success': False}
+            ref_id, referrer_id, referrer_tg_id, referrer_name, referrer_phone = res
+
+            # Cashback hisoblash
+            percent = int(self.get_setting('referral_cashback', '10'))
+            cashback = amount_paid * percent / 100
+
+            try:
+                # Statusni 'paid' (to'lanishi kerak) ga o'zgartiramiz
+                # bonus_given ga summani yozib qo'yamiz
+                self.execute(
+                    "UPDATE Referrals SET status='paid', bonus_given=?, converted_at=? WHERE id=?",
+                    (cashback, datetime.now(TASHKENT_TZ).isoformat(), ref_id), commit=True
+                )
+
+                return {
+                    'success': True,
+                    'referrer_tg_id': referrer_tg_id,
+                    'referrer_name': referrer_name,
+                    'referrer_phone': referrer_phone,
+                    'amount': cashback
+                }
+            except Exception as e:
+                print(f"Convert error: {e}")
+                return {'success': False}
 
     def get_user_referrals(self, telegram_id: int) -> List[Dict]:
         """Foydalanuvchi taklif qilgan odamlar ro'yxati"""
