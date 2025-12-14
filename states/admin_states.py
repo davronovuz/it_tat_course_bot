@@ -203,9 +203,10 @@ class AdminManageStates(StatesGroup):
 # ============================================================
 
 class BroadcastStates(StatesGroup):
-    """Ommaviy xabar holatlari"""
+    """Ommaviy xabar holatlari (Mukammal tizim uchun)"""
 
-    # Xabar yuborish
-    message_text = State()  # Xabar matni
-    message_media = State()  # Media (ixtiyoriy)
-    confirm = State()  # Tasdiqlash
+    message_text = State()   # 1. Xabar matni va media
+    buttons = State()        # 2. Tugmalar (URL)
+    time = State()           # 3. Vaqtni tanlash (Hozir/Keyin)
+    custom_time = State()    # 4. Aniq vaqtni kiritish (HH:MM)
+    confirm = State()        # 5. Tasdiqlash
