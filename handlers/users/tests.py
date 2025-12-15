@@ -223,6 +223,9 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
 # ============================================================
 #                    TEST NATIJASI
 # ============================================================
+# ============================================================
+#                    TEST NATIJASI (TUZATILGAN)
+# ============================================================
 
 async def show_test_result(message: types.Message, state: FSMContext):
     """
@@ -231,11 +234,16 @@ async def show_test_result(message: types.Message, state: FSMContext):
     """
     data = await state.get_data()
 
-    questions = data['questions']
+    questions = data.get('questions', [])
     answers = data.get('answers', {})
-    passing_score = int(user_db.get_setting('default_passing_score') or user_db.get('passing_score', 60))
-    lesson_id = data['lesson_id']
-    test_id = data['test_id']
+
+    # --- TUZATILGAN JOY ---
+    # Xato berayotgan qator o'rniga, start_test da saqlangan balni olamiz
+    passing_score = data.get('passing_score', 60)
+    # ----------------------
+
+    lesson_id = data.get('lesson_id')
+    test_id = data.get('test_id')
 
     # Natijani hisoblash
     correct_count = 0
@@ -245,6 +253,7 @@ async def show_test_result(message: types.Message, state: FSMContext):
         user_answer = answers.get(str(i))
         correct_answer = question.get('correct', '').upper()
 
+        # Agar user_answer bo'lsa va to'g'ri bo'lsa
         if user_answer and user_answer.upper() == correct_answer:
             correct_count += 1
 
@@ -336,7 +345,6 @@ async def show_test_result(message: types.Message, state: FSMContext):
                 is_last_lesson=is_last_lesson
             )
         )
-
 
 # ============================================================
 #                    YORDAMCHI FUNKSIYALAR
