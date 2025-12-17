@@ -661,7 +661,7 @@ def feedbacks_menu() -> InlineKeyboardMarkup:
 def settings_menu() -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
-        InlineKeyboardButton("💬 Fikr sozlamalari", callback_data="admin:settings:feedback"),
+  keyboard.add(InlineKeyboardButton("⏳ Standart muddatni sozlash", callback_data="set:duration")),
         InlineKeyboardButton("📝 Test sozlamalari", callback_data="admin:settings:test"),
         InlineKeyboardButton("🎓 Sertifikat sozlamalari", callback_data="admin:settings:cert"),
         InlineKeyboardButton("💳 To'lov sozlamalari", callback_data="admin:settings:payment"),
@@ -724,3 +724,51 @@ def close_button() -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup()
     keyboard.add(InlineKeyboardButton("❌ Yopish", callback_data="admin:close"))
     return keyboard
+
+
+# ============================================================
+#           YANGI QO'SHILGAN TUGMALAR (Fayl oxiriga)
+# ============================================================
+
+
+
+def manage_user_actions(user_id, course_id, is_active):
+    """Foydalanuvchini individual boshqarish"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+
+    # Bloklash yoki Tiklash
+    if is_active:
+        btn = InlineKeyboardButton("⛔️ BLOKLASH", callback_data=f"mng:block:{user_id}:{course_id}")
+    else:
+        btn = InlineKeyboardButton("🟢 TIKLASH (Unblock)", callback_data=f"mng:unblock:{user_id}:{course_id}")
+
+    keyboard.add(btn)
+
+    # Vaqt qo'shish va O'chirish
+    keyboard.add(
+        InlineKeyboardButton("➕ 30 kun", callback_data=f"mng:add:{user_id}:{course_id}:30"),
+        InlineKeyboardButton("➕ 3 oy (90 kun)", callback_data=f"mng:add:{user_id}:{course_id}:90")
+    )
+    keyboard.add(
+        InlineKeyboardButton("🗑 Ruxsatni o'chirish", callback_data=f"mng:delete:{user_id}:{course_id}")
+    )
+    return keyboard
+
+
+def mass_action_menu():
+    """Ommaviy vaqt qo'shish menyusi"""
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("➕ Hammaga 1 oy (30 kun)", callback_data="mass:add:30"))
+    kb.add(InlineKeyboardButton("➕ Hammaga 3 oy (90 kun)", callback_data="mass:add:90"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:main"))
+    return kb
+
+
+def confirm_mass_action(action, days, count):
+    """Ommaviy amalni tasdiqlash"""
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("✅ HA, BAJARILSIN", callback_data=f"mass:confirm:{action}:{days}"),
+        InlineKeyboardButton("❌ Bekor qilish", callback_data="admin:main")
+    )
+    return kb

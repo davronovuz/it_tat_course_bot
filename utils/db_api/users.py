@@ -2620,6 +2620,7 @@ class UserDatabase(Database):
             })
         return referrers
 
+
     def get_referrer_info(self, telegram_id: int) -> Optional[Dict]:
         """Foydalanuvchini kim taklif qilganini bilish"""
         user_id = self.get_user_id(telegram_id)
@@ -2646,3 +2647,139 @@ class UserDatabase(Database):
     def check_referral_enabled(self) -> bool:
         """Referal tizimi yoqilganmi"""
         return self.get_setting('referral_enabled', 'true').lower() == 'true'
+
+        # =============================================================
+        #           YANGI: ADMIN, RUXSAT VA VAQT METHODLARI
+        # =============================================================
+
+    def get_default_duration(self):
+            """
+            Sozlamalardan standart kurs muddatini oladi (kun).
+            Agar belgilanmagan bo'lsa, avtomat 90 kun qaytaradi.
+            """
+            try:
+                res = self.execute("SELECT value FROM Settings WHERE key = 'default_duration'", fetchone=True)
+                return int(res[0]) if res else 90
+            except:
+                return 90
+
+    def set_default_duration(self, days):
+            """Admin panel orqali standart muddatni o'zgartirish"""
+            self.execute(
+                "INSERT OR REPLACE INTO Settings (key, value, description) VALUES ('default_duration', ?, 'Standart kurs muddati')",
+                (str(days),), commit=True
+            )
+
+    def check_access(self, user_id, course_id):
+            """
+            Userning kursga kirishga haqqi bormi? (Bloklanmaganmi va Vaqti bormi?)
+            True = Kirishi mumkin
+            False = Kirishi mumkin emas
+            """
+            import datetime
+            row = self.execute(
+                "SELECT expires_at, is_active FROM ManualAccess WHERE user_id=? AND course_id=?",
+                (user_id, course_id), fetchone=True
+            )
+
+            if not row: return False  # Umuman sotib olmagan
+
+            expires_at_str, is_active = row
+
+            # 1. Bloklangan bo'lsa (is_active=0)
+            if not is_active: return False
+
+            # 2. Agar vaqt cheksiz bo'lsa (NULL)
+            if not expires_at_str: return True
+
+            # 3. Vaqtni tekshiramiz
+            try:
+                exp_date = datetime.datetime.strptime(str(expires_at_str)[:19], "%Y-%m-%d %H:%M:%S")
+                if datetime.datetime.now() > exp_date:
+                    return False  # Vaqt tugagan
+            except:
+                return False
+
+            return True
+
+    def grant_access(self, user_id, course_id, admin_id, days):
+            """
+            Userga ruxsat berish (Yangi vaqt hisoblab yozadi).
+            Avtomatik 'Tasdiqlash' bosilganda shu ishlaydi.
+            """
+            import datetime
+            # Hozirgi vaqt + N kun
+            expires_at = datetime.datetime.now() + datetime.timedelta(days=days)
+
+            self.execute(
+                """INSERT OR REPLACE INTO ManualAccess 
+                   (user_id, course_id, granted_by, expires_at, is_active)
+                   VALUES (?, ?, ?, ?, 1)""",
+                (user_id, course_id, admin_id, expires_at), commit=True
+            )
+            return expires_at
+
+    def block_user(self, user_id, course_id):
+            """Userni bloklash (is_active = 0)"""
+            self.execute(
+                "UPDATE ManualAccess SET is_active=0 WHERE user_id=? AND course_id=?",
+                (user_id, course_id), commit=True
+            )
+
+    def unblock_user(self, user_id, course_id):
+            """Userni blokdan chiqarish (is_active = 1)"""
+            self.execute(
+                "UPDATE ManualAccess SET is_active=1 WHERE user_id=? AND course_id=?",
+                (user_id, course_id), commit=True
+            )
+
+    def add_days_to_user(self, user_id, course_id, days):
+            """
+            Individual userga vaqt qo'shish.
+            Agar vaqti tugagan bo'lsa -> Bugundan boshlab qo'shadi.
+            Agar vaqti bor bo'lsa -> Bor vaqtini ustiga qo'shadi.
+            """
+            import datetime
+            row = self.execute(
+                "SELECT expires_at FROM ManualAccess WHERE user_id=? AND course_id=?",
+                (user_id, course_id), fetchone=True
+            )
+
+            now = datetime.datetime.now()
+
+            if row and row[0]:
+                current_exp = datetime.datetime.strptime(str(row[0])[:19], "%Y-%m-%d %H:%M:%S")
+                # Qaysi biri katta bo'lsa o'shandan boshlaymiz (Hozir yoki Tugash vaqti)
+                start_time = max(now, current_exp)
+            else:
+                start_time = now
+
+            new_expire = start_time + datetime.timedelta(days=days)
+
+            self.execute(
+                "UPDATE ManualAccess SET expires_at=?, is_active=1 WHERE user_id=? AND course_id=?",
+                (new_expire, user_id, course_id), commit=True
+            )
+            return new_expire
+
+    def delete_access(self, user_id, course_id):
+            """User ruxsatini butunlay o'chirib tashlash"""
+            self.execute(
+                "DELETE FROM ManualAccess WHERE user_id=? AND course_id=?",
+                (user_id, course_id), commit=True
+            )
+
+        # --- OMMAVIY (MASS) ACTIONLAR ---
+
+    def count_active_users(self):
+            """Nechta aktiv o'quvchi borligini sanash"""
+            res = self.execute("SELECT COUNT(*) FROM ManualAccess WHERE is_active=1", fetchone=True)
+            return res[0] if res else 0
+
+    def mass_add_time(self, days):
+            """
+            BARCHA aktiv o'quvchilarga N kun qo'shish.
+            Faqat vaqti borlarga (NULL emaslarga) ta'sir qiladi.
+            """
+            sql = f"UPDATE ManualAccess SET expires_at = datetime(expires_at, '+{days} days') WHERE is_active = 1 AND expires_at IS NOT NULL"
+            self.execute(sql, commit=True)

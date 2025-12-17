@@ -139,12 +139,20 @@ async def cmd_start(message: types.Message, state: FSMContext):
             return
 
     text = """
-IT TAT markazining Online Kompyuter Savodxonlik Kursiga xush kelibsiz!
+     <b>Assalomu alaykum!</b>
+    IT TAT onlayn o'quv platformasiga xush kelibsiz.
 
-Siz hozir o'zingizni rivojlantirish, yangi ko'nikmalar orttirish va kelajagingizga sarmoya qilish yo'lida birinchi va eng muhim qadamni tashladingiz.
+    📘 <b>Kurs haqida:</b>
+    • Kompyuterni noldan o'rganayotganlar uchun.
+    • Bilimi bor, lekin ko‘nikmalarini rivojlantirmoqchi bo‘lganlar uchun.
 
-Avval bepul demo darsni ko'rib chiqing 👇
-"""
+    🚀 <b>Kurs nima beradi?</b>
+    ✅ Kursni muvaffaqiyatli tugatsangiz  sertifikat olasiz.
+    ✅ Sun'iy intellekt (AI) bilan ishlashni o'rganasiz.
+    ✅ Windowsdagi asosiy dasturlar bilan ishlash o'rgatiladi.
+
+    ⬇️ Davom etish uchun ro'yxatdan o'ting:
+    """
 
     await message.answer(text, reply_markup=demo_lesson_button())
 
