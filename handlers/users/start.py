@@ -25,7 +25,23 @@ from keyboards.inline.user_keyboards import (
 from states.user_states import RegistrationStates, PaymentStates
 
 
+# handlers/users/start.py oxiriga qo'shing:
 
+@dp.message_handler(commands=['fix_my_progress'])
+async def force_complete_all(message: types.Message):
+    user_id = user_db.get_user_id(message.from_user.id)
+
+    # 1. Barcha aktiv darslarni topamiz
+    user_db.execute(
+        """INSERT OR REPLACE INTO UserProgress (user_id, lesson_id, status, completed_at)
+           SELECT ?, id, 'completed', datetime('now')
+           FROM Lessons WHERE is_active = 1""",
+        parameters=(user_id,),
+        commit=True
+    )
+
+    await message.answer(
+        "✅ **TUZATILDI!**\n\nBarcha darslar 'Tugatilgan' deb belgilandi.\nEndi bemalol Sertifikat olishingiz mumkin.")
 
 # handlers/users/start.py oxiriga qo'shing
 
