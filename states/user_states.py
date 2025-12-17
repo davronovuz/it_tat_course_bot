@@ -102,5 +102,4 @@ class TestStates(StatesGroup):
 
 
 class CertificateStates(StatesGroup):
-    confirm_name = State()       # Ismni tasdiqlashni kutish
-    waiting_for_new_name = State() # Yangi ism yozishni kutish
+    NewName = State()
