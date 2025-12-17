@@ -902,3 +902,185 @@ async def send_reminders_now(call: types.CallbackQuery):
         f"📤 Yuborildi: {success}\n"
         f"❌ Xato: {failed}"
     )
+
+
+# ============================================================
+#           YANGI: STANDART MUDDAT SOZLAMASI
+# ============================================================
+
+@dp.callback_query_handler(text="set:duration")
+@admin_required
+async def change_default_duration(call: types.CallbackQuery):
+    """Standart muddatni o'zgartirish"""
+    current = user_db.get_default_duration()
+
+    await call.message.edit_text(
+        f"⏳ <b>Standart kurs muddati</b>\n\n"
+        f"Hozirgi: <b>{current} kun</b>\n\n"
+        f"Yangi muddatni kunlarda kiriting (masalan: 180):"
+    )
+
+    await call.message.answer("✍️ Kun soni:", reply_markup=admin_cancel_button())
+    await SettingsStates.default_duration.set()
+    await call.answer()
+
+
+@dp.message_handler(state=SettingsStates.default_duration)
+async def save_default_duration(message: types.Message, state: FSMContext):
+    """Yangi muddatni saqlash"""
+    if message.text == "❌ Bekor qilish":
+        await state.finish()
+        await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
+        return
+
+    try:
+        days = int(message.text.strip())
+        if days < 1: raise ValueError
+    except ValueError:
+        await message.answer("❌ Iltimos, musbat son kiriting!")
+        return
+
+    user_db.set_default_duration(days)
+
+    await state.finish()
+    await message.answer(
+        f"✅ Yangi standart muddat: <b>{days} kun</b> qilib belgilandi.\nEndi to'lovlar avtomatik shu muddatga tasdiqlanadi.",
+        reply_markup=remove_keyboard()
+    )
+
+
+# ============================================================
+#           USERNI BOSHQARISH HANDLERLARI (Manage)
+# ============================================================
+# Import qilish esdan chiqmasin:
+from keyboards.inline.admin_keyboards import manage_user_actions
+
+
+# 1. BLOKLASH
+@dp.callback_query_handler(text_startswith="mng:block:")
+@admin_required
+async def manage_block_user(call: types.CallbackQuery):
+    parts = call.data.split(":")
+    user_id, course_id = parts[2], parts[3]
+
+    user_db.block_user(user_id, course_id)
+    await call.answer("⛔️ Foydalanuvchi bloklandi!", show_alert=True)
+
+    # Panelni yangilash
+    await refresh_manage_panel(call, user_id, course_id)
+
+
+# 2. TIKLASH (UNBLOCK)
+@dp.callback_query_handler(text_startswith="mng:unblock:")
+@admin_required
+async def manage_unblock_user(call: types.CallbackQuery):
+    parts = call.data.split(":")
+    user_id, course_id = parts[2], parts[3]
+
+    user_db.unblock_user(user_id, course_id)
+    await call.answer("✅ Foydalanuvchi blokdan chiqarildi!", show_alert=True)
+
+    await refresh_manage_panel(call, user_id, course_id)
+
+
+# 3. VAQT QO'SHISH (Individual)
+@dp.callback_query_handler(text_startswith="mng:add:")
+@admin_required
+async def manage_add_time(call: types.CallbackQuery):
+    parts = call.data.split(":")
+    user_id, course_id, days = parts[2], parts[3], int(parts[4])
+
+    new_expire = user_db.add_days_to_user(user_id, course_id, days)
+    await call.answer(f"✅ +{days} kun qo'shildi!\nTugash: {new_expire.strftime('%d.%m.%Y')}", show_alert=True)
+
+    await refresh_manage_panel(call, user_id, course_id)
+
+
+# 4. RUXSATNI O'CHIRISH (DELETE)
+@dp.callback_query_handler(text_startswith="mng:delete:")
+@admin_required
+async def manage_delete_access(call: types.CallbackQuery):
+    parts = call.data.split(":")
+    user_id, course_id = parts[2], parts[3]
+
+    user_db.delete_access(user_id, course_id)
+    await call.message.edit_text(
+        "🗑 <b>Ruxsat butunlay o'chirib yuborildi.</b>\nFoydalanuvchi endi kursga kira olmaydi (Sotib olmagan deb ko'rinadi).")
+
+
+# YORDAMCHI: Panelni yangilab turish uchun
+async def refresh_manage_panel(call: types.CallbackQuery, user_id, course_id):
+    """Bloklagandan keyin tugmalarni yangilash"""
+    user = user_db.get_user(user_id)
+    # Manual SQL o'rniga db metod ishlatish
+    row = user_db.execute("SELECT is_active, expires_at FROM ManualAccess WHERE user_id=? AND course_id=?",
+                          (user_id, course_id), fetchone=True)
+
+    status_text = "Sotib olmagan"
+    is_active = False
+
+    if row:
+        active_val, expires = row
+        is_active = bool(active_val)
+        status_text = f"🟢 Aktiv ({expires} gacha)" if is_active else "🔴 BLOKLANGAN"
+
+    text = f"""
+👤 <b>Foydalanuvchi boshqaruvi</b>
+Ism: {user['full_name']}
+ID: <code>{user_id}</code>
+Holat: <b>{status_text}</b>
+
+Boshqaruv paneli:
+"""
+    await call.message.edit_text(text, reply_markup=manage_user_actions(user_id, course_id, is_active))
+
+
+# ============================================================
+#           OMMAVIY VAQT QO'SHISH (MASS ACTION)
+# ============================================================
+from keyboards.inline.admin_keyboards import mass_action_menu, confirm_mass_action
+
+
+@dp.callback_query_handler(text="admin:mass_time")
+@admin_required
+async def show_mass_time_menu(call: types.CallbackQuery):
+    """Ommaviy menyuni ochish"""
+    count = user_db.count_active_users()
+    await call.message.edit_text(
+        f"⏳ <b>Ommaviy vaqt boshqaruvi</b>\n\n"
+        f"Hozir tizimda <b>{count} ta</b> aktiv o'quvchi bor.\n"
+        f"Siz barcha o'quvchilarga birdaniga vaqt qo'shishingiz mumkin.",
+        reply_markup=mass_action_menu()
+    )
+
+
+@dp.callback_query_handler(text_startswith="mass:add:")
+@admin_required
+async def ask_confirm_mass(call: types.CallbackQuery):
+    """Tasdiqlashni so'rash"""
+    days = int(call.data.split(":")[-1])
+    count = user_db.count_active_users()
+
+    await call.message.edit_text(
+        f"⚠️ <b>DIQQAT! JIDDIY AMAL!</b>\n\n"
+        f"Siz hozir <b>{count} nafar</b> o'quvchining barchasiga:\n"
+        f"➕ <b>{days} kun</b> vaqt qo'shmoqchisiz.\n\n"
+        f"Bu amalni ortga qaytarib bo'lmaydi. Tasdiqlaysizmi?",
+        reply_markup=confirm_mass_action("add", days, count)
+    )
+
+
+@dp.callback_query_handler(text_startswith="mass:confirm:add:")
+@admin_required
+async def execute_mass_add(call: types.CallbackQuery):
+    """Bajarish"""
+    days = int(call.data.split(":")[-1])
+
+    # Bazada bajarish
+    user_db.mass_add_time(days)
+
+    await call.message.edit_text(
+        f"✅ <b>Muvaffaqiyatli bajarildi!</b>\n\n"
+        f"Barcha aktiv o'quvchilarga <b>+{days} kun</b> qo'shib berildi.",
+        reply_markup=back_button("admin:main")
+    )

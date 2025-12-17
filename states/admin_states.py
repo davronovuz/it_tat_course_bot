@@ -187,6 +187,7 @@ class SettingsStates(StatesGroup):
     bot_name = State()
     bot_description = State()
     reminder_days = State()
+    default_duration = State()
 
 
 class AdminManageStates(StatesGroup):
