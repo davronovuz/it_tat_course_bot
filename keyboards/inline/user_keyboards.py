@@ -277,31 +277,28 @@ def test_question(question_index: int, options: List[str]) -> InlineKeyboardMark
 
     return keyboard
 
-
 def test_result(lesson_id: int, passed: bool, next_lesson_id: int = None,
-                is_last_lesson: bool = False) -> InlineKeyboardMarkup:
+                is_last_lesson: bool = False, course_id: int = 1) -> InlineKeyboardMarkup:
     """
-    Test natijasi
-    passed=True: 60%+ to'pladi
-    passed=False: 60% dan kam
+    Test natijasi (TUZATILGAN)
     """
     keyboard = InlineKeyboardMarkup(row_width=1)
 
     if passed:
         if is_last_lesson:
-            # Oxirgi dars - sertifikat
+            # --- O'ZGARISH SHU YERDA ---
+            # Sertifikat tugmasi endi kurs ID sini ham olib ketadi
             keyboard.add(InlineKeyboardButton(
                 "🎓 Sertifikatni olish",
-                callback_data="user:certificate"
+                callback_data=f"user:certificate:get:{course_id}"
             ))
+            # ---------------------------
         elif next_lesson_id:
-            # Keyingi darsga
             keyboard.add(InlineKeyboardButton(
                 "⏭ Keyingi dars",
                 callback_data=f"user:lesson:{next_lesson_id}"
             ))
     else:
-        # O'tmadi - qayta topshirish
         keyboard.add(InlineKeyboardButton(
             "🔄 Qayta topshirish",
             callback_data=f"user:test:{lesson_id}"
