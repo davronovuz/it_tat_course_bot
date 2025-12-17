@@ -20,4 +20,6 @@ from . import lessons                 # Darslar
 
 from . import referral
 # Eng muhim - asosiy handler
-from . import start                   # /start, ro'yxatdan o'tish, bosh menyu
+from . import start
+
+from . import progress
