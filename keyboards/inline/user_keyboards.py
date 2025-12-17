@@ -495,7 +495,7 @@ def back_button(callback_data: str = "user:results") -> InlineKeyboardMarkup:
     return keyboard
 
 
-def confirm_name_menu(course_id: int) -> InlineKeyboardMarkup:
+def confirm_name_keyboard(course_id: int) -> InlineKeyboardMarkup:
     """
     Sertifikat olishdan oldin ismni tasdiqlash
     """
