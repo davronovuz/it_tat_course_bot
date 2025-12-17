@@ -660,17 +660,24 @@ def feedbacks_menu() -> InlineKeyboardMarkup:
 
 def settings_menu() -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-  keyboard.add(InlineKeyboardButton("⏳ Standart muddatni sozlash", callback_data="set:duration")),
-        InlineKeyboardButton("📝 Test sozlamalari", callback_data="admin:settings:test"),
-        InlineKeyboardButton("🎓 Sertifikat sozlamalari", callback_data="admin:settings:cert"),
-        InlineKeyboardButton("💳 To'lov sozlamalari", callback_data="admin:settings:payment"),
-        InlineKeyboardButton("⏰ Eslatma sozlamalari", callback_data="admin:settings:reminder"),
-        InlineKeyboardButton("👨‍💼 Adminlar", callback_data="admin:settings:admins"),
-        InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:main")
-    )
-    return keyboard
 
+
+
+    keyboard.add(
+        InlineKeyboardButton("⏳ Standart muddatni sozlash", callback_data="set:duration"),
+        InlineKeyboardButton("📝 Test sozlamalari", callback_data="admin:settings:test")
+    )
+    keyboard.add(
+        InlineKeyboardButton("🎓 Sertifikat sozlamalari", callback_data="admin:settings:cert"),
+        InlineKeyboardButton("💳 To'lov sozlamalari", callback_data="admin:settings:payment")
+    )
+    keyboard.add(
+        InlineKeyboardButton("⏰ Eslatma sozlamalari", callback_data="admin:settings:reminder"),
+        InlineKeyboardButton("👨‍💼 Adminlar", callback_data="admin:settings:admins")
+    )
+    keyboard.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:main"))
+
+    return keyboard
 
 # ============================================================
 #                    BROADCAST
