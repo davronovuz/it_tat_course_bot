@@ -1,27 +1,36 @@
 """
-User Progress Handler (FINAL FULL VERSION)
-==========================================
-Barcha funksiyalar to'liq yozilgan.
-Qisqartirishlar yo'q.
-0/0 xatoligi uchun maxsus SQL so'rovlar qo'shilgan.
+User Progress Handler (FINAL COMPLETE VERSION)
+==============================================
+Bu fayl sertifikat olish jarayonini to'liq boshqaradi:
+1. Progressni tekshiradi (0/0 xatosiz).
+2. Ismni tasdiqlatadi.
+3. Ismni o'zgartirishga ruxsat beradi.
+4. Sertifikat yaratadi va Userga yuboradi.
+5. Adminlarga hisobot yuboradi.
+6. Barcha natijalar menyularini chiqaradi.
 """
 
 from aiogram import types
+from aiogram.dispatcher import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 from loader import dp, bot, user_db
 from utils.cert_gen import create_certificate
+from data.config import ADMINS
+from states.user_states import CertificateStates
+from keyboards.default.user_keyboards import user_main_menu
 from keyboards.inline.user_keyboards import (
     my_results_menu,
     course_progress_detail,
     certificates_list,
-    back_button
+    back_button,
+    confirm_name_keyboard  # Yangi qo'shilgan tugma
 )
 
 
 # ============================================================
-#                    NATIJALAR MENYUSI
+# 1. NATIJALAR MENYUSI (BOSH SAHIFA)
 # ============================================================
-
 @dp.callback_query_handler(text="user:results")
 async def show_results_menu(call: types.CallbackQuery):
     """
@@ -78,25 +87,22 @@ async def show_results_menu(call: types.CallbackQuery):
 
 ⬇️ Batafsil ko'rish uchun quyidagilardan birini tanlang:
 """
-
     await call.message.edit_text(text, reply_markup=my_results_menu())
     await call.answer()
 
 
 # ============================================================
-#                    KURS PROGRESSI (RO'YXAT)
+# 2. KURS PROGRESSI (RO'YXAT)
 # ============================================================
-
 @dp.callback_query_handler(text="user:my_progress")
 async def show_my_courses_progress(call: types.CallbackQuery):
     """
-    Foydalanuvchi qatnashayotgan kurslar ro'yxati va foizlari
+    Foydalanuvchi qatnashayotgan kurslar ro'yxati
     """
     telegram_id = call.from_user.id
     user_id = user_db.get_user_id(telegram_id)
 
-    # Foydalanuvchida dostup bor kurslarni topamiz
-    # (To'lov qilgan yoki Admin qo'shgan)
+    # Kurslarni olish
     result = user_db.execute(
         """SELECT DISTINCT c.id, c.name
            FROM Courses c
@@ -110,10 +116,8 @@ async def show_my_courses_progress(call: types.CallbackQuery):
         fetchall=True
     )
 
-    # Agar kurslar bo'lmasa, lekin 1-kurs bepul bo'lsa, uni ham qo'shib qo'yishimiz mumkin
-    # Yoki shunchaki xabar chiqaramiz
     if not result:
-        # Fallback: Agar UserProgress da biror dars bo'lsa, o'sha kursni ko'rsatamiz
+        # Fallback: Agar UserProgress da biror dars bo'lsa
         check_progress = user_db.execute(
             """SELECT DISTINCT c.id, c.name FROM UserProgress up
                JOIN Lessons l ON up.lesson_id = l.id
@@ -141,15 +145,11 @@ Darslarni boshlash uchun Asosiy menyudan "Darslar" bo'limiga o'ting.
 
 Quyidagi kurslardan birini tanlang:
 """
-
     courses_with_progress = []
 
     for row in result:
         course_id = row[0]
         course_name = row[1]
-
-        # Har bir kurs uchun progressni hisoblash
-        # (Bu yerda ham 0/0 xatosini oldini olish uchun oddiy hisoblaymiz)
 
         # Jami darslar
         res_total = user_db.execute(
@@ -176,24 +176,16 @@ Quyidagi kurslardan birini tanlang:
             'percentage': percent
         })
 
-    await call.message.edit_text(
-        text,
-        reply_markup=course_progress_detail(courses_with_progress)
-    )
+    await call.message.edit_text(text, reply_markup=course_progress_detail(courses_with_progress))
     await call.answer()
 
 
 # ============================================================
-#                    KONKRET KURS PROGRESSI (Batafsil)
+# 3. KONKRET KURS PROGRESSI (BATAFSIL)
 # ============================================================
-
 @dp.callback_query_handler(text_startswith="user:progress:")
 async def show_course_progress(call: types.CallbackQuery):
-    """
-    Tanlangan kursning ichki statistikasi (Modullar kesimida)
-    """
     course_id = int(call.data.split(":")[-1])
-
     telegram_id = call.from_user.id
     user_id = user_db.get_user_id(telegram_id)
 
@@ -202,7 +194,7 @@ async def show_course_progress(call: types.CallbackQuery):
         await call.answer("❌ Kurs topilmadi!", show_alert=True)
         return
 
-    # 1. Umumiy hisob-kitob (UserDB helperlarisiz, to'g'ridan-to'g'ri SQL)
+    # Umumiy hisob
     res_total = user_db.execute(
         "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = ?",
         parameters=(course_id,), fetchone=True
@@ -220,7 +212,7 @@ async def show_course_progress(call: types.CallbackQuery):
 
     percentage = (completed_lessons / total_lessons * 100) if total_lessons > 0 else 0
 
-    # 2. Modullar bo'yicha matn tayyorlash
+    # Modullar matni
     modules = user_db.get_course_modules(course_id, active_only=True)
     modules_text = ""
 
@@ -228,9 +220,7 @@ async def show_course_progress(call: types.CallbackQuery):
         mod_lessons = user_db.get_module_lessons(module['id'], active_only=True)
         mod_total = len(mod_lessons)
         mod_done = 0
-
         for lesson in mod_lessons:
-            # Har bir darsni tekshiramiz
             status_row = user_db.execute(
                 "SELECT status FROM UserProgress WHERE user_id = ? AND lesson_id = ?",
                 parameters=(user_id, lesson['id']), fetchone=True
@@ -239,14 +229,7 @@ async def show_course_progress(call: types.CallbackQuery):
                 mod_done += 1
 
         if mod_total > 0:
-            mod_percent = (mod_done / mod_total) * 100
-            if mod_percent == 100:
-                icon = "✅"
-            elif mod_percent > 0:
-                icon = "🔄"
-            else:
-                icon = "📁"
-            modules_text += f"{icon} <b>{module['name']}</b>: {mod_done}/{mod_total}\n"
+            modules_text += f"✅ <b>{module['name']}</b>: {mod_done}/{mod_total}\n"
 
     # Progress bar
     filled = int(percentage / 10)
@@ -263,11 +246,9 @@ async def show_course_progress(call: types.CallbackQuery):
 <b>Modullar bo'yicha:</b>
 {modules_text}
 """
-
-    # 3. Tugmalarni yasash
     keyboard = InlineKeyboardMarkup(row_width=1)
 
-    # Agar 99% dan yuqori bo'lsa (yaxlitlash xatolarini hisobga olib)
+    # Agar 99% dan yuqori bo'lsa -> Sertifikat olish
     if percentage >= 99 and total_lessons > 0:
         text += "\n🎉 <b>Tabriklaymiz! Kurs to'liq tugatildi!</b>"
         keyboard.add(InlineKeyboardButton(
@@ -275,26 +256,18 @@ async def show_course_progress(call: types.CallbackQuery):
             callback_data=f"user:certificate:get:{course_id}"
         ))
     else:
-        keyboard.add(InlineKeyboardButton(
-            "▶️ Darslarni davom ettirish",
-            callback_data="user:lessons"
-        ))
+        keyboard.add(InlineKeyboardButton("▶️ Darslarni davom ettirish", callback_data="user:lessons"))
 
     keyboard.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="user:my_progress"))
-
     await call.message.edit_text(text, reply_markup=keyboard)
     await call.answer()
 
 
 # ============================================================
-#                    TEST NATIJALARI (TARIX)
+# 4. TEST NATIJALARI (TARIX)
 # ============================================================
-
 @dp.callback_query_handler(text="user:test_results")
 async def show_test_results(call: types.CallbackQuery):
-    """
-    Test natijalari tarixi (Oxirgi 10 ta)
-    """
     telegram_id = call.from_user.id
     user_id = user_db.get_user_id(telegram_id)
 
@@ -312,35 +285,23 @@ async def show_test_results(call: types.CallbackQuery):
     )
 
     if not results:
-        text = """
-📝 <b>Test natijalari</b>
-
-📭 Siz hali test yechmagansiz.
-"""
+        text = "📝 <b>Test natijalari</b>\n\n📭 Siz hali test yechmagansiz."
     else:
         text = f"📝 <b>Test natijalari (Oxirgi 10 ta):</b>\n\n"
         for i, r in enumerate(results, 1):
             status = "✅" if r[2] else "❌"
             date = r[3][:10] if r[3] else ""
-            score = r[0]
-            lesson_name = r[4]
-
-            text += f"{i}. {status} <b>{lesson_name}</b>\n"
-            text += f"   📊 {score:.0f}% | 📅 {date}\n\n"
+            text += f"{i}. {status} <b>{r[4]}</b>\n   📊 {r[0]:.0f}% | 📅 {date}\n\n"
 
     await call.message.edit_text(text, reply_markup=back_button("user:results"))
     await call.answer()
 
 
 # ============================================================
-#                    SERTIFIKATLAR RO'YXATI
+# 5. SERTIFIKATLAR RO'YXATI
 # ============================================================
-
 @dp.callback_query_handler(text="user:certificates")
 async def show_certificates_list(call: types.CallbackQuery):
-    """
-    Foydalanuvchi olgan sertifikatlar ro'yxati
-    """
     telegram_id = call.from_user.id
     user_id = user_db.get_user_id(telegram_id)
 
@@ -356,191 +317,218 @@ async def show_certificates_list(call: types.CallbackQuery):
     )
 
     if not certs:
-        text = """
-🎓 <b>Sertifikatlar</b>
-
-📭 Sizda hozircha sertifikat yo'q.
-Sertifikat olish uchun kursni 100% tugatishingiz kerak.
-"""
+        text = "🎓 <b>Sertifikatlar</b>\n\n📭 Sizda hozircha sertifikat yo'q."
         await call.message.edit_text(text, reply_markup=back_button("user:results"))
-        await call.answer()
         return
 
     text = f"🎓 <b>Mening sertifikatlarim:</b>\nJami: {len(certs)} ta\n"
-
     certificates_data = []
     grade_icons = {'GOLD': '🥇', 'SILVER': '🥈', 'BRONZE': '🥉', 'PARTICIPANT': '📜', 'EXPERT': '💎'}
 
     for cert in certs:
         grade = cert[2]
         icon = grade_icons.get(grade, '📜')
-        course_name = cert[4]
-
         certificates_data.append({
-            'id': cert[0],
-            'code': cert[1],
-            'grade': grade,
-            'course_name': course_name
+            'id': cert[0], 'code': cert[1], 'grade': grade, 'course_name': cert[4]
         })
-        text += f"\n{icon} <b>{course_name}</b> ({grade})"
+        text += f"\n{icon} <b>{cert[4]}</b> ({grade})"
 
     await call.message.edit_text(text, reply_markup=certificates_list(certificates_data))
     await call.answer()
 
 
 # ============================================================
-#                    SERTIFIKAT GENERATSIYA QILISH (FIX)
+# 6. SERTIFIKAT OLISH JARAYONI (1-QADAM: TEKSHIRISH VA SO'RASH)
 # ============================================================
-
 @dp.callback_query_handler(text_startswith="user:certificate:get:")
-async def generate_and_get_certificate(call: types.CallbackQuery):
-    """
-    Sertifikat olish funksiyasi.
-    0/0 xatoligini aylanib o'tish uchun majburiy SQL hisob-kitob ishlatadi.
-    """
-    try:
-        raw_data = call.data.split(":")
-        course_id = int(raw_data[-1])
-        telegram_id = call.from_user.id
-        user_id = user_db.get_user_id(telegram_id)
+async def check_and_ask_name(call: types.CallbackQuery):
+    course_id = int(call.data.split(":")[-1])
+    telegram_id = call.from_user.id
+    user_id = user_db.get_user_id(telegram_id)
 
-        # ---------------------------------------------------------
-        # 1. MAJBURIY HISOBLASH (UserDB helperlariga ishonmaymiz)
-        # ---------------------------------------------------------
-
-        # Jami darslar (aktiv/passiv farqi yo'q, hammasini sanaymiz)
+    # 1. Progressni tekshirish (Manual SQL)
+    res_total = user_db.execute(
+        "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = ?",
+        parameters=(course_id,), fetchone=True
+    )
+    total = res_total[0] if res_total else 0
+    if total == 0:
+        course_id = 1
         res_total = user_db.execute(
-            """SELECT COUNT(*) FROM Lessons l
-               JOIN Modules m ON l.module_id = m.id
-               WHERE m.course_id = ?""",
-            parameters=(course_id,),
-            fetchone=True
-        )
-        total_lessons = res_total[0] if res_total else 0
+            "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = 1", fetchone=True)
+        total = res_total[0] if res_total else 0
 
-        # Agar total 0 bo'lsa, demak course_id noto'g'ri yoki darslar boshqa kursda (masalan 1 da)
-        if total_lessons == 0:
-            # Fallback: Default 1-kursni tekshirib ko'ramiz
-            course_id = 1
-            res_total = user_db.execute(
-                "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = 1",
-                fetchone=True
-            )
-            total_lessons = res_total[0] if res_total else 0
+    res_done = user_db.execute(
+        """SELECT COUNT(*) FROM UserProgress up 
+           JOIN Lessons l ON up.lesson_id = l.id
+           JOIN Modules m ON l.module_id = m.id
+           WHERE up.user_id = ? AND m.course_id = ? AND up.status = 'completed'""",
+        parameters=(user_id, course_id), fetchone=True
+    )
+    done = res_done[0] if res_done else 0
+    percent = (done / total * 100) if total > 0 else 0
 
-        # Tugatilgan darslar (Completed)
-        res_completed = user_db.execute(
-            """SELECT COUNT(*) FROM UserProgress up
-               JOIN Lessons l ON up.lesson_id = l.id
-               JOIN Modules m ON l.module_id = m.id
-               WHERE up.user_id = ? AND m.course_id = ? AND up.status = 'completed'""",
-            parameters=(user_id, course_id),
-            fetchone=True
-        )
-        completed_lessons = res_completed[0] if res_completed else 0
+    if percent < 99 and total > 0:
+        await call.answer(f"❌ Kurs tugatilmagan! ({percent:.0f}%)", show_alert=True)
+        return
 
-        # Foiz
-        if total_lessons > 0:
-            percentage = (completed_lessons / total_lessons) * 100
-        else:
-            percentage = 0
+    # 2. Agar oldin olgan bo'lsa -> Darhol beramiz
+    existing = user_db.get_certificate(telegram_id, course_id)
+    if existing:
+        await generate_and_send_final(call, telegram_id, course_id, existing)
+        return
 
-        # ---------------------------------------------------------
-        # 2. TEKSHIRUV
-        # ---------------------------------------------------------
-        # Agar 99% dan kam bo'lsa, lekin jami darslar 0 dan katta bo'lsa -> Ruxsat yo'q
-        if percentage < 99 and total_lessons > 0:
-            await call.answer(
-                f"❌ Kurs tugatilmagan!\n"
-                f"📊 Natija: {completed_lessons}/{total_lessons} ({percentage:.0f}%)",
-                show_alert=True
-            )
-            return
+    # 3. Agar yo'q bo'lsa -> ISMNI TASDIQLASH
+    user = user_db.get_user(telegram_id)
+    full_name = user['full_name']
 
-        # Agar umuman dars topilmasa (0/0)
-        if total_lessons == 0:
-            await call.answer("⚠️ Tizimda darslar topilmadi (0/0). Admin bilan bog'laning.", show_alert=True)
-            return
+    text = f"""
+🎓 <b>Sertifikat ma'lumotlarini tasdiqlang</b>
 
-        await call.answer("⏳ Sertifikat tayyorlanmoqda...", show_alert=False)
+Sertifikatga quyidagi ism-familiya yoziladi:
+👤 <b>{full_name}</b>
 
-        # ---------------------------------------------------------
-        # 3. SERTIFIKAT DATA YARATISH
-        # ---------------------------------------------------------
-        cert_data = user_db.generate_certificate(telegram_id, course_id)
+<i>Agar ismingiz xato bo'lsa yoki nikneym turgan bo'lsa, "✏️ Ismni o'zgartirish" tugmasini bosing.</i>
+"""
+    await call.message.edit_text(text, reply_markup=confirm_name_keyboard(course_id))
 
-        if not cert_data:
-            cert_data = user_db.get_certificate(telegram_id, course_id)
 
-        # Favqulodda holat (agar baza ishlamasa)
-        if not cert_data:
-            import uuid
-            cert_data = {
-                'code': f"CERT-{uuid.uuid4().hex[:8].upper()}",
-                'grade': 'EXPERT',
-                'total_score': 100
-            }
+# ============================================================
+# 7. ISMNI O'ZGARTIRISH (2-QADAM)
+# ============================================================
+@dp.callback_query_handler(text_startswith="cert:change:")
+async def change_name_start(call: types.CallbackQuery, state: FSMContext):
+    course_id = int(call.data.split(":")[-1])
 
-        # ---------------------------------------------------------
-        # 4. RASM CHIZISH
-        # ---------------------------------------------------------
+    await call.message.delete()
+    await call.message.answer(
+        "📝 <b>Iltimos, ism va familiyangizni to'liq yozib yuboring:</b>\n\n"
+        "<i>Masalan: Aminov Azamat</i>"
+    )
+
+    await state.update_data(cert_course_id=course_id)
+    await CertificateStates.NewName.set()
+
+
+@dp.message_handler(state=CertificateStates.NewName)
+async def change_name_save(message: types.Message, state: FSMContext):
+    new_name = message.text.strip()
+
+    # Bazani yangilash
+    user_db.execute(
+        "UPDATE Users SET full_name = ? WHERE telegram_id = ?",
+        parameters=(new_name, message.from_user.id),
+        commit=True
+    )
+
+    data = await state.get_data()
+    course_id = data.get('cert_course_id', 1)
+    await state.finish()
+
+    text = f"""
+✅ <b>Ism o'zgartirildi!</b>
+
+Sertifikatga yoziladi:
+👤 <b>{new_name}</b>
+
+Tasdiqlaysizmi?
+"""
+    await message.answer(text, reply_markup=confirm_name_keyboard(course_id))
+
+
+# ============================================================
+# 8. TASDIQLASH VA GENERATSIYA (YAKUNIY BOSQICH)
+# ============================================================
+@dp.callback_query_handler(text_startswith="cert:confirm:")
+async def confirm_generation(call: types.CallbackQuery):
+    course_id = int(call.data.split(":")[-1])
+    telegram_id = call.from_user.id
+
+    await call.answer("⏳ Sertifikat tayyorlanmoqda...", show_alert=False)
+
+    # Bazada yaratish
+    cert_data = user_db.generate_certificate(telegram_id, course_id)
+
+    if not cert_data:
+        cert_data = user_db.get_certificate(telegram_id, course_id)
+
+    # Yuborish funksiyasini chaqiramiz
+    await generate_and_send_final(call, telegram_id, course_id, cert_data)
+
+
+# ============================================================
+# 9. RASM YASASH, USERGA VA ADMINGA YUBORISH
+# ============================================================
+async def generate_and_send_final(call: types.CallbackQuery, telegram_id, course_id, cert_data):
+    try:
         user = user_db.get_user(telegram_id)
         course = user_db.get_course(course_id)
         course_name = course['name'] if course else "Maxsus Kurs"
+        full_name = user['full_name']
 
+        # Xabarni tozalash
         try:
-            # Eski xabarni o'chirish
+            await call.message.delete()
+        except:
+            pass
+
+        msg = await call.message.answer("🖌 <b>Sertifikat yozilmoqda...</b>")
+
+        # Rasm chizish
+        cert_image = create_certificate(
+            full_name=full_name,
+            course_name=course_name,
+            grade=cert_data['grade'],
+            cert_code=cert_data['code']
+        )
+
+        caption = (
+            f"🎉 <b>TABRIKLAYMIZ!</b>\n\n"
+            f"Siz <b>{course_name}</b> kursini muvaffaqiyatli tamomladingiz!\n\n"
+            f"👤 <b>{full_name}</b>\n"
+            f"🏆 Daraja: <b>{cert_data['grade']}</b>\n"
+            f"🆔 ID: <code>{cert_data['code']}</code>\n\n"
+            f"<i>Ushbu sertifikat rasmiy hisoblanadi.</i>"
+        )
+
+        await msg.delete()
+
+        # Userga yuborish
+        sent_msg = await call.message.answer_photo(cert_image, caption=caption)
+        await call.message.answer("⬇️ Asosiy menyu", reply_markup=user_main_menu())
+
+        # ----------------------------------------------
+        # 🔥 ADMINLARGA XABAR YUBORISH
+        # ----------------------------------------------
+        admin_text = (
+            f"🎓 <b>YANGI SERTIFIKAT BERILDI!</b>\n\n"
+            f"👤 User: <b>{full_name}</b>\n"
+            f"🆔 Telegram ID: <code>{telegram_id}</code>\n"
+            f"📚 Kurs: {course_name}\n"
+            f"🔢 Sertifikat ID: {cert_data['code']}\n"
+            f"🏆 Baho: {cert_data['grade']}"
+        )
+
+        # Adminlarga yuborish
+        for admin in ADMINS:
             try:
-                await call.message.delete()
-            except:
-                pass
-
-            msg = await call.message.answer("🖌 <b>Sertifikat yozilmoqda...</b>")
-
-            cert_image = create_certificate(
-                full_name=user['full_name'],
-                course_name=course_name,
-                grade=cert_data['grade'],
-                cert_code=cert_data['code']
-            )
-
-            if not cert_image:
-                await msg.edit_text("❌ Sertifikat faylini yaratib bo'lmadi.")
-                return
-
-            caption = (
-                f"🎉 <b>TABRIKLAYMIZ!</b>\n\n"
-                f"Siz <b>{course_name}</b> kursini muvaffaqiyatli tamomladingiz!\n\n"
-                f"🏆 Daraja: <b>{cert_data['grade']}</b>\n"
-                f"⭐️ Ball: <b>{cert_data['total_score']}</b>\n"
-                f"🆔 ID: <code>{cert_data['code']}</code>\n\n"
-                f"<i>Ushbu sertifikat rasmiy hisoblanadi.</i>"
-            )
-
-            await msg.delete()
-            await call.message.answer_photo(cert_image, caption=caption)
-
-            # Asosiy menyuga qaytish tugmasi
-            from keyboards.default.user_keyboards import user_main_menu
-            await call.message.answer("⬇️ Asosiy menyu", reply_markup=user_main_menu())
-
-        except Exception as e:
-            await msg.edit_text(f"❌ Rasm chizishda xatolik: {e}")
+                await bot.send_photo(
+                    chat_id=admin,
+                    photo=sent_msg.photo[-1].file_id,
+                    caption=admin_text
+                )
+            except Exception as e:
+                print(f"Adminga yuborishda xato: {e}")
 
     except Exception as e:
-        print(f"CRITICAL ERROR IN CERTIFICATE: {e}")
-        await call.answer(f"Tizim xatosi: {e}", show_alert=True)
+        await call.message.answer(f"❌ Xatolik: {e}")
 
 
 # ============================================================
-#                    SERTIFIKATNI QAYTA KO'RISH
+# 10. MAVJUD SERTIFIKATNI OCHISH
 # ============================================================
-
 @dp.callback_query_handler(text_startswith="user:certificate:view:")
 async def view_existing_certificate(call: types.CallbackQuery):
-    """
-    Mavjud sertifikatni ochish
-    """
     cert_id = int(call.data.split(":")[-1])
 
     cert_row = user_db.execute(
@@ -562,7 +550,6 @@ async def view_existing_certificate(call: types.CallbackQuery):
 
     try:
         cert_image = create_certificate(full_name, course_name, grade, code)
-
         caption = (
             f"🎓 <b>SERTIFIKAT</b>\n\n"
             f"👤 <b>{full_name}</b>\n"
@@ -570,15 +557,12 @@ async def view_existing_certificate(call: types.CallbackQuery):
             f"🏆 Daraja: {grade}\n"
             f"🆔 Kod: <code>{code}</code>"
         )
-
         try:
             await call.message.delete()
         except:
             pass
 
         await call.message.answer_photo(cert_image, caption=caption)
-
-        from keyboards.default.user_keyboards import user_main_menu
         await call.message.answer("⬇️ Menyuga qaytish", reply_markup=user_main_menu())
 
     except Exception as e:
