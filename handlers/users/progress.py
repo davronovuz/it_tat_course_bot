@@ -1,13 +1,13 @@
 """
-User Progress Handler (YANGILANGAN)
-===================================
+User Progress Handler (DEBUG VERSIYASI)
+=======================================
 Natijalar, kurs progressi va sertifikat olish tizimi.
-Endi avtomatik rasm chizish tizimi (Pillow) bilan ulangan.
+Terminalga LOG chiqaradi (xatolarni topish uchun).
 """
 
 from aiogram import types
 from loader import dp, bot, user_db
-from utils.cart_gen import create_certificate
+from utils.cert_gen import create_certificate  # <-- To'g'ri nom (cert_gen)
 from keyboards.inline.user_keyboards import (
     my_results_menu,
     course_progress_detail,
@@ -320,73 +320,105 @@ Sertifikat olish uchun kursni 100% tugatishingiz kerak.
 @dp.callback_query_handler(text_startswith="user:certificate:get:")
 async def generate_and_get_certificate(call: types.CallbackQuery):
     """
-    Sertifikatni generatsiya qilish va yuborish
+    Sertifikatni generatsiya qilish va yuborish (LOGLAR BILAN)
     """
-    course_id = int(call.data.split(":")[-1])
-    telegram_id = call.from_user.id
-    user_id = user_db.get_user_id(telegram_id)
-
-    # 1. Progressni qayta tekshirish (Xavfsizlik uchun)
-    progress = user_db.get_user_course_progress(user_id, course_id)
-    if progress['percentage'] < 100:
-        await call.answer("❌ Kurs hali 100% tugatilmagan!", show_alert=True)
-        return
-
-    await call.answer("⏳ Sertifikat tayyorlanmoqda...", show_alert=False)
-
-    # 2. Bazada yaratish (yoki borini olish)
-    # generate_certificate DICTIONARY qaytaradi: {'code':..., 'grade':..., 'total_score':...}
-    cert_data = user_db.generate_certificate(telegram_id, course_id)
-
-    if not cert_data:
-        # Agar oldin yaratilgan bo'lsa, get_certificate orqali olamiz
-        cert_data = user_db.get_certificate(telegram_id, course_id)
-
-    if not cert_data:
-        await call.message.answer("❌ Sertifikat ma'lumotlarini olishda xatolik!")
-        return
-
-    # 3. User ma'lumotlari
-    user = user_db.get_user(telegram_id)
-    course = user_db.get_course(course_id)
-
-    # 4. Rasmni chizish (Pillow orqali)
     try:
-        # Eski xabarni o'chirishga harakat qilamiz
-        try:
-            await call.message.delete()
-        except:
-            pass
+        # --- DEBUG BOSHLANDI ---
+        raw_data = call.data.split(":")
+        print(f"\n🔘 [DEBUG] Sertifikat tugmasi bosildi. Raw: {raw_data}")
 
-        msg = await call.message.answer("🖌 <b>Sertifikat yozilmoqda...</b>")
-
-        # Rasm yaratish (BytesIO obyekti qaytadi)
-        cert_image = create_certificate(
-            full_name=user['full_name'],
-            course_name=course['name'],
-            grade=cert_data['grade'],
-            cert_code=cert_data['code']
-        )
-
-        if not cert_image:
-            await msg.edit_text("❌ Shablon topilmadi! Admin bilan bog'laning.")
+        if len(raw_data) < 4:
+            print("❌ [DEBUG] Callback data noto'g'ri formatda!")
+            await call.answer("❌ Tizim xatosi: Callback data noto'g'ri", show_alert=True)
             return
 
-        # 5. Rasmni yuborish
-        caption = (
-            f"🎉 <b>TABRIKLAYMIZ!</b>\n\n"
-            f"Siz <b>{course['name']}</b> kursini muvaffaqiyatli tamomladingiz!\n\n"
-            f"🏆 Daraja: <b>{cert_data['grade']}</b>\n"
-            f"⭐️ Ball: <b>{cert_data['total_score']}</b>\n"
-            f"🆔 ID: <code>{cert_data['code']}</code>\n\n"
-            f"<i>Ushbu sertifikat rasmiy hisoblanadi.</i>"
-        )
+        course_id = int(raw_data[-1])
+        telegram_id = call.from_user.id
+        user_id = user_db.get_user_id(telegram_id)
 
-        await msg.delete()
-        await call.message.answer_photo(cert_image, caption=caption)
+        print(f"👤 [DEBUG] User: {telegram_id} (DB ID: {user_id}) | Course: {course_id}")
+
+        # 1. Progressni qayta tekshirish
+        progress = user_db.get_user_course_progress(user_id, course_id)
+        print(f"📊 [DEBUG] Progress: {progress}")
+
+        if progress['percentage'] < 100:
+            print(f"❌ [DEBUG] Kurs tugatilmagan. Foiz: {progress['percentage']}")
+            await call.answer(
+                f"❌ Kurs hali 100% tugatilmagan!\n"
+                f"Sizda: {progress['percentage']}%\n"
+                f"Tugatilgan: {progress['completed']}/{progress['total']} ta dars.",
+                show_alert=True
+            )
+            return
+
+        print("✅ [DEBUG] Progress 100%, sertifikat yaratish boshlandi...")
+        # --- DEBUG TUGADI ---
+
+        await call.answer("⏳ Sertifikat tayyorlanmoqda...", show_alert=False)
+
+        # 2. Bazada yaratish (yoki borini olish)
+        cert_data = user_db.generate_certificate(telegram_id, course_id)
+        print(f"📄 [DEBUG] DB dan qaytgan sertifikat data: {cert_data}")
+
+        if not cert_data:
+            # Agar generate qaytarmasa, demak oldin bor edi, shuni olamiz
+            cert_data = user_db.get_certificate(telegram_id, course_id)
+            print(f"📄 [DEBUG] Eskisini oldik: {cert_data}")
+
+        if not cert_data:
+            print("❌ [DEBUG] Sertifikat ma'lumotlari topilmadi!")
+            await call.message.answer("❌ Sertifikat ma'lumotlarini olishda xatolik!")
+            return
+
+        # 3. User ma'lumotlari
+        user = user_db.get_user(telegram_id)
+        course = user_db.get_course(course_id)
+
+        # 4. Rasmni chizish (Pillow orqali)
+        try:
+            # Eski xabarni o'chirishga harakat qilamiz
+            try:
+                await call.message.delete()
+            except:
+                pass
+
+            msg = await call.message.answer("🖌 <b>Sertifikat yozilmoqda...</b>")
+
+            # Rasm yaratish (BytesIO obyekti qaytadi)
+            cert_image = create_certificate(
+                full_name=user['full_name'],
+                course_name=course['name'],
+                grade=cert_data['grade'],
+                cert_code=cert_data['code']
+            )
+
+            if not cert_image:
+                print("❌ [DEBUG] Rasm (cert_image) None qaytdi!")
+                await msg.edit_text("❌ Shablon topilmadi! Admin bilan bog'laning.")
+                return
+
+            # 5. Rasmni yuborish
+            caption = (
+                f"🎉 <b>TABRIKLAYMIZ!</b>\n\n"
+                f"Siz <b>{course['name']}</b> kursini muvaffaqiyatli tamomladingiz!\n\n"
+                f"🏆 Daraja: <b>{cert_data['grade']}</b>\n"
+                f"⭐️ Ball: <b>{cert_data['total_score']}</b>\n"
+                f"🆔 ID: <code>{cert_data['code']}</code>\n\n"
+                f"<i>Ushbu sertifikat rasmiy hisoblanadi.</i>"
+            )
+
+            await msg.delete()
+            await call.message.answer_photo(cert_image, caption=caption)
+            print("✅ [DEBUG] Sertifikat muvaffaqiyatli yuborildi!")
+
+        except Exception as e:
+            print(f"❌ [DEBUG] Rasm chizishda xatolik: {e}")
+            await call.message.answer(f"❌ Xatolik yuz berdi: {e}")
 
     except Exception as e:
-        await call.message.answer(f"❌ Xatolik yuz berdi: {e}")
+        print(f"❌ [DEBUG] Asosiy xatolik: {e}")
+        await call.answer(f"Xatolik: {e}", show_alert=True)
 
 
 @dp.callback_query_handler(text_startswith="user:certificate:view:")
@@ -416,7 +448,7 @@ async def view_existing_certificate(call: types.CallbackQuery):
 
     await call.answer("⏳ Yuklanmoqda...")
 
-    # Rasmni qayta generatsiya qilamiz (xotiradan joy olmasligi uchun saqlamasdan)
+    # Rasmni qayta generatsiya qilamiz
     try:
         cert_image = create_certificate(
             full_name=full_name,
@@ -433,7 +465,6 @@ async def view_existing_certificate(call: types.CallbackQuery):
             f"🆔 Kod: <code>{code}</code>"
         )
 
-        # Eski menyuni o'chiramiz
         try:
             await call.message.delete()
         except:
