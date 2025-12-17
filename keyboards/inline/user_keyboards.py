@@ -412,3 +412,87 @@ def referral_back() -> InlineKeyboardMarkup:
         callback_data="referral:menu"
     ))
     return keyboard
+
+
+# ============================================================
+#                    NATIJALAR VA PROGRESS (YANGI)
+# ============================================================
+
+def my_results_menu() -> InlineKeyboardMarkup:
+    """
+    Natijalar menyusi (Statistika, Kurslar, Sertifikatlar)
+    """
+    keyboard = InlineKeyboardMarkup(row_width=1)
+
+    keyboard.add(InlineKeyboardButton(
+        "📊 Mening kurslarim progressi",
+        callback_data="user:my_progress"
+    ))
+
+    keyboard.add(InlineKeyboardButton(
+        "📝 Test natijalari",
+        callback_data="user:test_results"
+    ))
+
+    keyboard.add(InlineKeyboardButton(
+        "🎓 Mening sertifikatlarim",
+        callback_data="user:certificates"
+    ))
+
+    return keyboard
+
+
+def course_progress_detail(courses: List[Dict]) -> InlineKeyboardMarkup:
+    """
+    Kurslar ro'yxati (Progress bilan)
+    """
+    keyboard = InlineKeyboardMarkup(row_width=1)
+
+    for course in courses:
+        # 📚 Kurs nomi - 45%
+        text = f"📚 {course['name']} - {course['percentage']:.0f}%"
+        keyboard.add(InlineKeyboardButton(
+            text,
+            callback_data=f"user:progress:{course['id']}"
+        ))
+
+    keyboard.add(InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data="user:results"
+    ))
+
+    return keyboard
+
+
+def certificates_list(certificates: List[Dict]) -> InlineKeyboardMarkup:
+    """
+    Sertifikatlar ro'yxati
+    """
+    keyboard = InlineKeyboardMarkup(row_width=1)
+
+    for cert in certificates:
+        # 📜 Kurs nomi (GOLD)
+        text = f"📜 {cert['course_name']} ({cert['grade']})"
+        keyboard.add(InlineKeyboardButton(
+            text,
+            callback_data=f"user:certificate:view:{cert['id']}"
+        ))
+
+    keyboard.add(InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data="user:results"
+    ))
+
+    return keyboard
+
+
+def back_button(callback_data: str = "user:results") -> InlineKeyboardMarkup:
+    """
+    Universal orqaga qaytish tugmasi
+    """
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data=callback_data
+    ))
+    return keyboard
