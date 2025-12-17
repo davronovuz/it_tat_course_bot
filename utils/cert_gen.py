@@ -1,91 +1,114 @@
+import os
+import requests
 from PIL import Image, ImageDraw, ImageFont
 import io
 from datetime import datetime
-import os
+
+
+def ensure_font_exists():
+    """
+    Montserrat-Bold shriftini internetdan yuklab olish.
+    """
+    folder = "utils/assets/fonts"
+    file_path = f"{folder}/font.ttf"
+
+    os.makedirs(folder, exist_ok=True)
+
+    if not os.path.exists(file_path):
+        print(f"⏳ Montserrat-Bold shrifti yuklanmoqda...")
+        try:
+            url = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/Montserrat-Bold.ttf"
+            response = requests.get(url, timeout=20)
+            if response.status_code == 200:
+                with open(file_path, 'wb') as f:
+                    f.write(response.content)
+                print("✅ Font muvaffaqiyatli o'rnatildi!")
+            else:
+                return None
+        except Exception as e:
+            print(f"❌ Xatolik: {e}")
+            return None
+
+    return file_path
 
 
 def create_certificate(full_name: str, course_name: str, grade: str, cert_code: str):
     """
-    Sertifikat chizish (Manual Font bilan)
+    Sertifikat chizish (Tuzatilgan koordinatalar bilan)
     """
-    # 1. Shablon va Font manzili
+    font_path = ensure_font_exists()
     template_path = 'utils/assets/basic.jpg'
-    font_path = 'utils/assets/fonts/font.ttf'  # <--- SIZ YUKLAGAN FAYL
 
     try:
         img = Image.open(template_path)
     except:
-        print("❌ Shablon topilmadi!")
         return None
 
     draw = ImageDraw.Draw(img)
     W, H = img.size
 
     # ------------------------------------------------
-    # 2. SHRIFTLARNI YUKLASH (KATTA O'LCHAMDA)
+    # 1. SHRIFT O'LCHAMLARI (O'ZGARTIRILDI)
     # ------------------------------------------------
-    try:
-        # Ism uchun juda katta shrift (110 px)
-        name_font = ImageFont.truetype(font_path, 110)
+    if font_path:
+        try:
+            # Ism: 110 dan 90 ga KICHRAYTIRILDI
+            name_font = ImageFont.truetype(font_path, 90)
 
-        # ID va Sana uchun o'rtacha (35 px)
-        info_font = ImageFont.truetype(font_path, 35)
+            # Sana: 35 ligicha qoldi
+            info_font = ImageFont.truetype(font_path, 35)
 
-        # ID raqam uchun sal kattaroq (40 px)
-        id_font = ImageFont.truetype(font_path, 40)
-    except Exception as e:
-        print(f"❌ Font xatosi: {e}")
-        # Agar font fayli topilmasa, majburan default (lekin bu kichkina bo'ladi)
+            # ID: 40 ligicha qoldi
+            id_font = ImageFont.truetype(font_path, 40)
+        except:
+            name_font = ImageFont.load_default()
+            info_font = ImageFont.load_default()
+            id_font = ImageFont.load_default()
+    else:
         name_font = ImageFont.load_default()
         info_font = ImageFont.load_default()
         id_font = ImageFont.load_default()
 
-    # Ranglar
-    # "Aminov Azamat" rasmidagidek to'q kulrang/qora rang
-    text_color = (40, 40, 40)
-    id_color = (100, 100, 100)  # ID sal ochroq
+    text_color = (30, 30, 30)
+    id_color = (80, 80, 80)
 
     # ------------------------------------------------
-    # 3. ISM-FAMILIYA (O'RTAGA, KATTA)
+    # 2. ISM-FAMILIYA (O'RTAGA)
     # ------------------------------------------------
-    # Ismni o'lchaymiz
     bbox = draw.textbbox((0, 0), full_name, font=name_font)
     text_width = bbox[2] - bbox[0]
 
-    # X: Qoqq o'rta
     x_name = (W - text_width) / 2
 
-    # Y: "Aminov Azamat" sertifikatida ism biroz teparoqda turibdi
-    # Taxminan balandlikning 42-45% qismida
-    y_name = H * 0.45
+    # Ismni sal pastroqqa tushirdim (45% dan 48% ga)
+    # Shunda chiziqqa chiroyli o'tiradi
+    y_name = H * 0.48
 
     draw.text((x_name, y_name), full_name, font=name_font, fill=text_color)
 
     # ------------------------------------------------
-    # 4. SANA (CHAP PASTGA)
+    # 3. SANA (CHAP PASTGA - KOTARILDI)
     # ------------------------------------------------
     date_str = datetime.now().strftime("%d.%m.%Y")
 
-    # Chap tomondan: 22% surilgan (Date chizig'i ustiga)
-    # Pastdan: 72% joyda
     x_date = W * 0.22
-    y_date = H * 0.68  # Sana chizig'ining ustiga tushishi kerak
+    # Sana chiziqni bosib qolgani uchun TEPAGA ko'tardim
+    # (0.68 dan 0.65 ga - raqam qancha kichik bo'lsa, shuncha tepaga chiqadi)
+    y_date = H * 0.655
 
     draw.text((x_date, y_date), date_str, font=info_font, fill=text_color)
 
     # ------------------------------------------------
-    # 5. ID RAQAM (O'NG TEPAGA)
+    # 4. ID RAQAM (O'NG TEPAGA - TUSHIRILDI)
     # ------------------------------------------------
-    # Format: #0112345678
-
-    # ID ni o'lchaymiz
     bbox_id = draw.textbbox((0, 0), cert_code, font=id_font)
     id_w = bbox_id[2] - bbox_id[0]
 
-    # O'ng tomondan 80px ichkarida
     x_id = W - id_w - 80
-    # Tepadan 80px pastda
-    y_id = 80
+
+    # ID shiftdaga tegib turgandi, PASTGA tushirdim
+    # (80 px dan 130 px ga)
+    y_id = 130
 
     draw.text((x_id, y_id), cert_code, font=id_font, fill=id_color)
 
