@@ -5,99 +5,89 @@ import io
 from datetime import datetime
 
 
-def check_and_download_font(font_path):
-    """
-    Font fayli borligini tekshiradi, yo'q bo'lsa internetdan yuklaydi.
-    Biz "Great Vibes" (chiroyli yozma shrift) ishlatamiz.
-    """
-    # Papka borligini tekshirish va yaratish
-    os.makedirs(os.path.dirname(font_path), exist_ok=True)
-
-    if not os.path.exists(font_path):
-        print("⏳ Font topilmadi, internetdan yuklanmoqda...")
-        # Great Vibes shrifti (Google Fonts)
-        url = "https://github.com/google/fonts/raw/main/ofl/greatvibes/GreatVibes-Regular.ttf"
-        # Agar oddiyroq shrift kerak bo'lsa, pastdagini commentdan oling:
-        # url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
-
+# --- YORDAMCHI FUNKSIYA: Font yuklash ---
+def download_font(url, save_path):
+    """Internetdan font faylini yuklab olish"""
+    if not os.path.exists(save_path):
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        print(f"⏳ Font yuklanmoqda: {save_path}...")
         try:
-            response = requests.get(url)
-            with open(font_path, 'wb') as f:
-                f.write(response.content)
-            print("✅ Font yuklab olindi!")
+            response = requests.get(url, timeout=20)
+            if response.status_code == 200:
+                with open(save_path, 'wb') as f:
+                    f.write(response.content)
+                print("✅ Font muvaffaqiyatli yuklandi!")
+                return True
+            else:
+                print(f"❌ Font yuklashda xato. Status: {response.status_code}")
+                return False
         except Exception as e:
-            print(f"❌ Font yuklashda xato: {e}")
+            print(f"❌ Font yuklashda xatolik: {e}")
             return False
     return True
 
 
+# ----------------------------------------
+
 def create_certificate(full_name: str, course_name: str, grade: str, cert_code: str):
     """
-    Sertifikat rasmini yaratish.
+    Sertifikat rasmini yaratish (Yangi Roboto shrifti bilan)
     """
 
     # 1. SHABLONNI TANLASH
-    # Yo'llarni to'g'riladim (utils/assets/ ichida bo'lishi kerak)
     base_path = "utils/assets"
-
-    template_map = {
-        'EXPERT': f'{base_path}/expert.jpg',
-        'STANDARD': f'{base_path}/standard.jpg',
-        'BASIC': f'{base_path}/basic.jpg',
-        'PARTICIPANT': f'{base_path}/basic.jpg'
-    }
-
-    # Agar grade noto'g'ri kelsa, BASIC ni olamiz
-    template_path = template_map.get(grade, f'{base_path}/basic.jpg')
+    # Shablon nomlari sizda qanday bo'lsa shunday qoldiring
+    template_path = f'{base_path}/basic.jpg'  # Hozircha hammasiga basic ishlatamiz
 
     try:
         img = Image.open(template_path)
     except FileNotFoundError:
-        print(f"❌ Xatolik: {template_path} rasm topilmadi! 'utils/assets' papkasini tekshiring.")
+        print(f"❌ Xatolik: {template_path} topilmadi!")
         return None
 
     draw = ImageDraw.Draw(img)
     W, H = img.size
 
     # ---------------------------------------------------------
-    # 2. SHRIFTLARNI SOZLASH (Avtomatik yuklash bilan)
+    # 2. YANGI SHRIFTLARNI SOZLASH (Roboto)
     # ---------------------------------------------------------
-    font_path = "utils/assets/font.ttf"
+    # Google Fonts havolalari (ishonchli manba)
+    FONT_BOLD_URL = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
+    FONT_REGULAR_URL = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Regular.ttf"
 
-    # Fontni tekshirish va yuklash
-    font_exists = check_and_download_font(font_path)
+    # Saqlash manzillari
+    font_bold_path = f"{base_path}/fonts/Roboto-Bold.ttf"
+    font_reg_path = f"{base_path}/fonts/Roboto-Regular.ttf"
+
+    # Fontlarni yuklashga harakat qilamiz
+    has_bold = download_font(FONT_BOLD_URL, font_bold_path)
+    has_reg = download_font(FONT_REGULAR_URL, font_reg_path)
 
     try:
-        if font_exists:
-            # Ism uchun juda katta shrift
-            name_font = ImageFont.truetype(font_path, 180)  # Hajmini sal kattalashtirdim
-            # ID va Sana uchun o'rtacha shrift
-            info_font = ImageFont.truetype(font_path, 50)
+        if has_bold and has_reg:
+            # Ism uchun QALIN (Bold) shrift. O'lchamini (120) o'zingizga moslab o'zgartiring
+            name_font = ImageFont.truetype(font_bold_path, 120)
+            # ID va sana uchun ODDIY (Regular) shrift
+            info_font = ImageFont.truetype(font_reg_path, 40)
         else:
-            # Agar internet bo'lmasa, majburiy standart font
-            raise Exception("Font file not found")
+            raise Exception("Fontlar yuklanmadi")
     except:
-        print("⚠️ Font yuklanmadi, standart font ishlatilmoqda (xunukroq ko'rinishi mumkin).")
+        print("⚠️ Fontlar yuklanmadi, tizimning standart shrifti ishlatilmoqda.")
         name_font = ImageFont.load_default()
         info_font = ImageFont.load_default()
 
     # Ranglar (RGB)
     black_color = (0, 0, 0)
-    id_color = (80, 80, 80)  # To'q kulrang
+    id_color = (60, 60, 60)  # To'q kulrang
 
     # ---------------------------------------------------------
-    # 3. ISM FAMILYANI YOZISH (Qoq o'rtaga)
+    # 3. ISM-FAMILIYANI YOZISH (O'rtaga)
     # ---------------------------------------------------------
-    # Ismning eni va bo'yini o'lchaymiz
     bbox = draw.textbbox((0, 0), full_name, font=name_font)
     text_width = bbox[2] - bbox[0]
-
-    # Koordinata X: (RasmEni - YozuvEni) / 2 = Markaz
     x_name = (W - text_width) / 2
-
-    # Koordinata Y: Rasm markazidan ozgina teparoqqa
-    # Shablonga qarab o'zgartirishingiz mumkin: -50, -60 va hokazo
-    y_name = (H / 2) - 80
+    # Y koordinatasini shablonga qarab o'zgartiring (tepa-pastga surish uchun)
+    y_name = (H / 2) - 40
 
     draw.text((x_name, y_name), full_name, font=name_font, fill=black_color)
 
@@ -105,33 +95,31 @@ def create_certificate(full_name: str, course_name: str, grade: str, cert_code: 
     # 4. SANA (DATE) YOZISH
     # ---------------------------------------------------------
     date_str = datetime.now().strftime("%d.%m.%Y")
-
-    # Chap tomondan 450px, Pastdan 460px tepada
-    x_date = 450
-    y_date = H - 460
-
+    # Koordinatalarni shabloningizdagi chiziqqa moslang
+    x_date = 480
+    y_date = H - 475
     draw.text((x_date, y_date), date_str, font=info_font, fill=black_color)
 
     # ---------------------------------------------------------
-    # 5. ID RAQAM (ENG YUQORIGA)
+    # 5. ID RAQAM (Tepaga, yangi formatda)
     # ---------------------------------------------------------
-    id_text = f"№ {cert_code}"
+    # cert_code endi bazadan #01... shaklida keladi
+    id_text = cert_code
 
-    # ID uzunligini o'lchaymiz
     bbox_id = draw.textbbox((0, 0), id_text, font=info_font)
     id_width = bbox_id[2] - bbox_id[0]
 
-    # O'ng tomondan 100px ichkarida, Tepadan 100px pastda
-    x_id = W - id_width - 150
-    y_id = 150
+    # O'ng tomondan joy tashlash
+    x_id = W - id_width - 180
+    y_id = 160
 
     draw.text((x_id, y_id), id_text, font=info_font, fill=id_color)
 
     # ---------------------------------------------------------
-    # 6. RASMNI SAQLASH (Xotiraga)
+    # 6. RASMNI SAQLASH
     # ---------------------------------------------------------
     bio = io.BytesIO()
-    bio.name = f"certificate_{cert_code}.jpg"
+    bio.name = f"certificate.jpg"
     img.save(bio, 'JPEG', quality=95)
     bio.seek(0)
 
