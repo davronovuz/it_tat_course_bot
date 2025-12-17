@@ -25,6 +25,52 @@ from keyboards.inline.user_keyboards import (
 from states.user_states import RegistrationStates, PaymentStates
 
 
+
+
+# handlers/users/start.py oxiriga qo'shing
+
+@dp.message_handler(commands=['check_my_progress'])
+async def debug_progress(message: types.Message):
+    user_id = user_db.get_user_id(message.from_user.id)
+
+    # Barcha darslarni olamiz (faqat aktivlarini)
+    # Hozircha 1-kurs deb hisoblaymiz
+    lessons = user_db.execute(
+        """SELECT l.id, l.name, l.order_num 
+           FROM Lessons l 
+           JOIN Modules m ON l.module_id = m.id 
+           WHERE m.course_id = 1 AND l.is_active = 1
+           ORDER BY l.order_num""",
+        fetchall=True
+    )
+
+    text = "🔍 **DIAGNOSTIKA:**\n\n"
+    count = 0
+
+    for l in lessons:
+        lid, name, order = l
+        # Har bir dars uchun statusni tekshiramiz
+        status = user_db.execute(
+            "SELECT status FROM UserProgress WHERE user_id = ? AND lesson_id = ?",
+            (user_id, lid), fetchone=True
+        )
+        st_text = status[0] if status else "❌ YO'Q (boshlanmagan)"
+
+        if st_text == 'completed':
+            icon = "✅"
+            count += 1
+        else:
+            icon = "⚠️"
+
+        text += f"{icon} {order}-dars: {name}\nStatus: <b>{st_text}</b>\n\n"
+
+    total = len(lessons)
+    percent = (count / total * 100) if total > 0 else 0
+    text += f"📊 Jami: {count}/{total} ({percent}%)"
+
+    await message.answer(text)
+
+
 # ============================================================
 #                    1. /START BUYRUG'I
 # ============================================================
@@ -836,46 +882,3 @@ def get_course_info() -> dict:
         'avg_duration': format_duration(avg_seconds)
     }
 
-
-# handlers/users/start.py oxiriga qo'shing
-
-@dp.message_handler(commands=['check_my_progress'])
-async def debug_progress(message: types.Message):
-    user_id = user_db.get_user_id(message.from_user.id)
-
-    # Barcha darslarni olamiz (faqat aktivlarini)
-    # Hozircha 1-kurs deb hisoblaymiz
-    lessons = user_db.execute(
-        """SELECT l.id, l.name, l.order_num 
-           FROM Lessons l 
-           JOIN Modules m ON l.module_id = m.id 
-           WHERE m.course_id = 1 AND l.is_active = 1
-           ORDER BY l.order_num""",
-        fetchall=True
-    )
-
-    text = "🔍 **DIAGNOSTIKA:**\n\n"
-    count = 0
-
-    for l in lessons:
-        lid, name, order = l
-        # Har bir dars uchun statusni tekshiramiz
-        status = user_db.execute(
-            "SELECT status FROM UserProgress WHERE user_id = ? AND lesson_id = ?",
-            (user_id, lid), fetchone=True
-        )
-        st_text = status[0] if status else "❌ YO'Q (boshlanmagan)"
-
-        if st_text == 'completed':
-            icon = "✅"
-            count += 1
-        else:
-            icon = "⚠️"
-
-        text += f"{icon} {order}-dars: {name}\nStatus: <b>{st_text}</b>\n\n"
-
-    total = len(lessons)
-    percent = (count / total * 100) if total > 0 else 0
-    text += f"📊 Jami: {count}/{total} ({percent}%)"
-
-    await message.answer(text)
