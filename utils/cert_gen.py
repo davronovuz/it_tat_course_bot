@@ -94,7 +94,7 @@ def create_certificate(full_name: str, course_name: str, grade: str, cert_code: 
     x_date = W * 0.22
     # Sana chiziqni bosib qolgani uchun TEPAGA ko'tardim
     # (0.68 dan 0.65 ga - raqam qancha kichik bo'lsa, shuncha tepaga chiqadi)
-    y_date = H * 0.655
+    y_date = H * 0.755
 
     draw.text((x_date, y_date), date_str, font=info_font, fill=text_color)
 

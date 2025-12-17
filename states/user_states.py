@@ -99,3 +99,8 @@ class PaymentStates(StatesGroup):
 class TestStates(StatesGroup):
     """Test yechish"""
     in_progress = State()  # Test jarayonida
+
+
+class CertificateStates(StatesGroup):
+    confirm_name = State()       # Ismni tasdiqlashni kutish
+    waiting_for_new_name = State() # Yangi ism yozishni kutish

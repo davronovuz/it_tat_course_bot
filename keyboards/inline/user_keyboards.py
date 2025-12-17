@@ -493,3 +493,27 @@ def back_button(callback_data: str = "user:results") -> InlineKeyboardMarkup:
         callback_data=callback_data
     ))
     return keyboard
+
+
+def confirm_name_menu(course_id: int) -> InlineKeyboardMarkup:
+    """
+    Sertifikat olishdan oldin ismni tasdiqlash
+    """
+    keyboard = InlineKeyboardMarkup(row_width=1)
+
+    keyboard.add(InlineKeyboardButton(
+        "✅ Tasdiqlash (Sertifikat olish)",
+        callback_data=f"cert:confirm:{course_id}"
+    ))
+
+    keyboard.add(InlineKeyboardButton(
+        "✏️ Ismni o'zgartirish",
+        callback_data=f"cert:edit:{course_id}"
+    ))
+
+    keyboard.add(InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data="user:results"
+    ))
+
+    return keyboard
