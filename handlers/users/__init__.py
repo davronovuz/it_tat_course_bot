@@ -13,7 +13,9 @@ Tartib: kichik handlerlar yuqorida, katta (muhim) handlerlar pastda
 # O'rtacha handlerlar
 
 
+from . import progress
 from . import tests                   # Test yechish
+
 
 # Katta/asosiy handlerlar
 from . import lessons                 # Darslar
@@ -22,4 +24,3 @@ from . import referral
 # Eng muhim - asosiy handler
 from . import start
 
-from . import progress
