@@ -7,15 +7,24 @@ Asosan hammasi INLINE orqali
 
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
+
 def user_main_menu() -> ReplyKeyboardMarkup:
     """
     Asosiy menyu - kursga kirgan userlar uchun
     """
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+
     keyboard.add(
         KeyboardButton("📚 Darslar"),
         KeyboardButton("👥 Taklif qilish")
     )
+
+
+    keyboard.add(
+        KeyboardButton("📢 Telegram kanal"),
+        KeyboardButton("📥 Dars rejasi")
+    )
+
     return keyboard
 
 def main_menu() -> ReplyKeyboardMarkup:

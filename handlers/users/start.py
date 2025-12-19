@@ -13,7 +13,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import CommandStart, Text
 
 from loader import dp, user_db,bot
-from keyboards.default.user_keyboards import phone_request, remove_keyboard
+from keyboards.default.user_keyboards import phone_request, remove_keyboard, user_main_menu
 from keyboards.inline.user_keyboards import (
     demo_lesson_button,
     after_demo_not_registered,
@@ -139,19 +139,11 @@ async def cmd_start(message: types.Message, state: FSMContext):
             return
 
     text = """
-     <b>Assalomu alaykum!</b>
-    IT TAT onlayn o'quv platformasiga xush kelibsiz.
+    <b>IT TAT markazining Online Kompyuter Savodxonlik Kursiga xush kelibsiz!</b>
 
-    📘 <b>Kurs haqida:</b>
-    • Kompyuterni noldan o'rganayotganlar uchun.
-    • Bilimi bor, lekin ko‘nikmalarini rivojlantirmoqchi bo‘lganlar uchun.
+    Siz hozir o‘zingizni rivojlantirish, yangi ko‘nikmalar orttirish va kelajagingizga sarmoya qilish yo‘lida birinchi va eng muhim qadamni tashladingiz.
 
-    🚀 <b>Kurs nima beradi?</b>
-    ✅ Kursni muvaffaqiyatli tugatsangiz  sertifikat olasiz.
-    ✅ Sun'iy intellekt (AI) bilan ishlashni o'rganasiz.
-    ✅ Windowsdagi asosiy dasturlar bilan ishlash o'rgatiladi.
-
-    ⬇️ Davom etish uchun ro'yxatdan o'ting:
+    Avval bepul demo darsni ko'rib chiqing 👇
     """
 
     await message.answer(text, reply_markup=demo_lesson_button())
@@ -350,7 +342,7 @@ async def finish_registration(message: types.Message, state: FSMContext, phone: 
 📱 Telefon: {phone}
 """
 
-    await message.answer(text, reply_markup=remove_keyboard())
+    await message.answer(text, reply_markup=user_main_menu())
 
     # Keyingi tugma - kursni boshlash yoki sotib olish
     course = get_main_course()
