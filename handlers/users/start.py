@@ -915,3 +915,27 @@ async def open_channel_handler(message: types.Message):
         "Yangiliklardan xabardor bo'lish uchun obuna bo'ling!",
         reply_markup=kb
     )
+
+
+@dp.message_handler(text="📞 Admin bilan aloqa")
+async def contact_admin_menu(message: types.Message):
+    """
+    Admin aloqa ma'lumotlarini chiqarish
+    """
+    # Ma'lumotlarni o'zingizga moslang
+    admin_phone = "+998 90 123 45 67"
+    admin_username = "@AdminUsername"
+    work_hours = "09:00 - 18:00"
+
+    text = f"""
+📞 <b>Admin bilan aloqa</b>
+
+Savollaringiz bormi? Bizga bog'laning:
+
+📱 <b>Telefon:</b> {admin_phone}
+👤 <b>Telegram:</b> {admin_username}
+🕰 <b>Ish vaqti:</b> {work_hours}
+
+<i>Sizga tez orada javob beramiz!</i>
+"""
+    await message.answer(text)

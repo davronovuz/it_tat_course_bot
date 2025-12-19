@@ -15,7 +15,7 @@ def user_main_menu() -> ReplyKeyboardMarkup:
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 
     keyboard.add(
-        KeyboardButton("📚 Darslar"),
+        KeyboardButton("📞 Admin bilan aloqa"),
         KeyboardButton("👥 Taklif qilish")
     )
 
