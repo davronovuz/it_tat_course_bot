@@ -11,6 +11,7 @@ Oqim:
 from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import CommandStart, Text
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from loader import dp, user_db,bot
 from keyboards.default.user_keyboards import phone_request, remove_keyboard, user_main_menu
@@ -205,21 +206,22 @@ async def show_demo_lesson(call: types.CallbackQuery):
         keyboard = after_demo_not_registered()
 
     info_text = f"""
-📊 <b>Kurs haqida:</b>
+    📊 <b>Kurs haqida:</b>
 
-📚 Darslar soni: <b>{course_info['lessons_count']} ta</b>
-⏱ Umumiy davomiylik: <b>{course_info['total_duration']}</b>
-📹 O'rtacha 1 dars: <b>{course_info['avg_duration']}</b>
+    📚 Darslar soni: <b>{course_info['lessons_count']} ta</b>
+    ⏱ Umumiy davomiylik: <b>{course_info['total_duration']}</b>
+    📹 O'rtacha 1 dars: <b>{course_info['avg_duration']}</b>
 
-👥 <b>Kimlar uchun:</b>
-Kompyuterni yangi o'rganayotganlar uchun
+    👥 <b>Kimlar uchun:</b>
+    Kompyuterni noldan o'rganayotganlar va zamonaviy kasb egalari uchun.
 
-✅ <b>Kurs nima beradi:</b>
-- Kompyuter bilan erkin ishlashni o'rganasiz
-- Windows operatsion tizimini o'zlashtirasiz
-- Ofis dasturlarini bilib olasiz
-- Sertifikat olasiz
-"""
+    ✅ <b>Kurs davomida nimalarni o'rganasiz:</b>
+    💻 <b>Windows & Asoslar:</b> Kompyuterda erkin va tez ishlash.
+    📄 <b>Microsoft Office:</b> Word, Excel, PowerPoint dasturlari.
+    ☁️ <b>Google Cloud:</b> Google Docs, Sheets va onlayn ofis.
+    🤖 <b>Sun'iy Intellekt (AI):</b> ChatGPT va AI yordamida ishlarni osonlashtirish.
+    🎓 <b>Natija:</b> Kurs yakunida Maxsus Sertifikat olasiz!
+    """
 
     await call.message.answer(info_text, reply_markup=keyboard)
     await call.answer()
@@ -898,3 +900,18 @@ def get_course_info() -> dict:
         'avg_duration': format_duration(avg_seconds)
     }
 
+
+@dp.message_handler(text="📢 Telegram kanal")
+async def open_channel_handler(message: types.Message):
+    # Kanal havolasi
+    channel_url = "https://t.me/it_tat_samarkand"  # O'zingiznikini qo'ying
+
+    # Chiroyli ko'rinishi uchun Inline tugma ham qo'shamiz
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("↗️ Kanalga o'tish", url=channel_url))
+
+    await message.answer(
+        "📢 <b>Bizning rasmiy kanalimiz:</b>\n\n"
+        "Yangiliklardan xabardor bo'lish uchun obuna bo'ling!",
+        reply_markup=kb
+    )
