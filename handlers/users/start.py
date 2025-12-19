@@ -510,7 +510,6 @@ async def receive_payment_receipt(message: types.Message, state: FSMContext):
     if payment_id:
         await message.answer(
             f"✅ <b>Chek qabul qilindi!</b>\n\n"
-            f"🆔 To'lov ID: #{payment_id}\n"
             f"⏳ Admin tekshirmoqda...",
             reply_markup=payment_pending()
         )
@@ -813,12 +812,11 @@ async def notify_admin_new_payment(user: dict, course_id: int, file_id: str, pay
 👤 User: {user.get('full_name', "Nomalum")}
 📱 Tel: {user.get('phone', 'Nomalum')}
 🆔 @{user.get('username') or 'yoq'}
-🆔 ID: <code>{user.get('telegram_id') or user.get('id')}</code>
+
 
 📚 Kurs: {course_name}
 💵 Summa: <b>{price_text} so'm</b>
 
-To'lov ID: #{payment_id}
 """
 
     # Admin keyboard
