@@ -241,7 +241,7 @@ async def start_registration(call: types.CallbackQuery, state: FSMContext):
     """
     # Video xabarni edit qilib bo'lmaydi, yangi xabar yuboramiz
     try:
-        await call.message.delete()
+        pass
     except:
         pass
 
