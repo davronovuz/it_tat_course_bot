@@ -193,20 +193,21 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
 # ============================================================
 #                    TEST NATIJASI (MUHIM QISM)
 # ============================================================
-
 async def show_test_result(message: types.Message, state: FSMContext):
     """
-    Test tugadi, natijani hisoblash va darsni ochish/yopish
+    Test tugadi, natijani hisoblash va darsni ochish/yopish (YANGILANGAN)
     """
+    # 1. Barcha kerakli ma'lumotlarni olamiz
     data = await state.get_data()
 
     questions = data.get('questions', [])
     answers = data.get('answers', {})
     passing_score = data.get('passing_score', 60)
     lesson_id = data.get('lesson_id')
+    lesson_name = data.get('lesson_name', f"Dars #{lesson_id}")  # Dars nomi qo'shildi
     test_id = data.get('test_id')
 
-    # To'g'ri javoblarni sanash
+    # 2. To'g'ri javoblarni sanash
     correct_count = 0
     total_count = len(questions)
 
@@ -216,11 +217,11 @@ async def show_test_result(message: types.Message, state: FSMContext):
         if user_answer and user_answer.upper() == correct_answer:
             correct_count += 1
 
-    # Natija foizi
+    # 3. Natija foizini hisoblash
     percentage = (correct_count / total_count * 100) if total_count > 0 else 0
     passed = percentage >= passing_score
 
-    # Bazaga yozish
+    # 4. Bazaga yozish (LOGIKA BUZILMAYDI)
     telegram_id = message.chat.id
     user = user_db.get_user(telegram_id)
 
@@ -245,64 +246,67 @@ async def show_test_result(message: types.Message, state: FSMContext):
                 complete_lesson_db(user['id'], lesson_id)
                 user_db.add_score(telegram_id, 10)  # Dars tugagani uchun bonus
 
-    # Keyingi darsni aniqlash
+    # 5. Keyingi darsni aniqlash
     next_lesson = get_next_lesson(lesson_id)
     is_last_lesson = next_lesson is None
 
-    # --- ⚠️ MUHIM: COURSE ID NI ANIQLASH ---
+    # Course ID ni aniqlash
     lesson_info = user_db.get_lesson(lesson_id)
-    # Agar lesson_info topilsa course_id ni olamiz, aks holda 1
     course_id = lesson_info['course_id'] if lesson_info else 1
-    # ----------------------------------------
 
-    # Xabar matni
+    # 6. Xabarni tayyorlash
     if passed:
-        text = f"""
+        result_text = f"""
 🎉 <b>Tabriklaymiz! Testdan o'tdingiz!</b>
 
-✅ To'g'ri javoblar: {correct_count}/{total_count}
-📊 Natija: {percentage:.0f}%
+📚 <b>{lesson_name}</b>
 
-🎁 Sizga ballar qo'shildi.
-✅ Dars muvaffaqiyatli yakunlandi!
+✅ To'g'ri javoblar: <b>{correct_count}/{total_count}</b>
+📊 Natija: <b>{percentage:.0f}%</b>
+
+🎁 Sizga ballar qo'shildi va dars yakunlandi!
 """
         if is_last_lesson:
-            text += "\n🎓 <b>Siz kursni to'liq tugatdingiz! Sertifikat olishingiz mumkin.</b>"
+            result_text += "\n🎓 <b>Siz kursni to'liq tugatdingiz! Sertifikat olishingiz mumkin.</b>"
     else:
-        text = f"""
+        result_text = f"""
 😔 <b>Afsuski, yetarli ball to'play olmadingiz.</b>
 
-📊 Natija: {percentage:.0f}%
-🎯 Talab qilinadi: {passing_score}%
+📚 <b>{lesson_name}</b>
 
-🔄 Iltimos, darsni qayta ko'rib chiqib, testni qayta topshiring.
+📊 Natija: <b>{percentage:.0f}%</b>
+🎯 Talab qilinadi: <b>{passing_score}%</b>
+
+🔄 Darsni qayta ko'rib chiqib, testni qayta topshiring.
 """
 
+    # 7. State ni yopamiz
     await state.finish()
 
-    try:
-        await message.edit_text(
-            text,
-            reply_markup=test_result(
-                lesson_id=lesson_id,
-                passed=passed,
-                next_lesson_id=next_lesson['id'] if next_lesson else None,
-                is_last_lesson=is_last_lesson,
-                course_id=course_id  # <--- TUZATILDI: course_id yuborilyapti
-            )
-        )
-    except:
-        await message.answer(
-            text,
-            reply_markup=test_result(
-                lesson_id=lesson_id,
-                passed=passed,
-                next_lesson_id=next_lesson['id'] if next_lesson else None,
-                is_last_lesson=is_last_lesson,
-                course_id=course_id  # <--- TUZATILDI
-            )
-        )
+    # ========================================================
+    # ⚠️ O'ZGARISH SHU YERDA (XABARLARNI AJRATISH)
+    # ========================================================
 
+    # A) Eski savol turgan xabarni o'chiramiz (chalg'itmasligi uchun)
+    try:
+        await message.delete()
+    except:
+        pass
+
+    # B) NATIJA XABARI (Tugmasiz) - Bu tarixda qoladi
+    await message.answer(result_text)
+
+    # C) MENYU TUGMALARI (Alohida xabar) - Bu keyinchalik o'zgaradi
+    await message.answer(
+        "⬇️ <b>Kerakli amalni tanlang:</b>",
+        reply_markup=test_result(
+            lesson_id=lesson_id,
+            passed=passed,
+            next_lesson_id=next_lesson['id'] if next_lesson else None,
+            is_last_lesson=is_last_lesson,
+            course_id=course_id
+        )
+    )
 
 # ============================================================
 #                    YORDAMCHI FUNKSIYALAR
