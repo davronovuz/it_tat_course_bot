@@ -157,11 +157,11 @@ async def show_question(message: types.Message, state: FSMContext, index: int):
 # ============================================================
 #                    JAVOB BERISH
 # ============================================================
-
 @dp.callback_query_handler(text_startswith="user:answer:", state=TestStates.in_progress)
 async def answer_question(call: types.CallbackQuery, state: FSMContext):
     """
-    Foydalanuvchi javob berganda ishlaydi
+    Foydalanuvchi javob berganda ishlaydi (YANGILANGAN)
+    Xato qilsa -> To'g'ri javobni ko'rsatadi (OK tugmasisiz).
     """
     import random
     parts = call.data.split(":")
@@ -170,20 +170,35 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     questions = data['questions']
+
+    # Hozirgi savol va to'g'ri javobni aniqlash
     question = questions[question_index]
     correct = question.get('correct', '').upper()
 
-    # Javobni saqlash
+    # Javobni saqlash (Logika shu yerda ishlaydi, bunga tegmaymiz)
     answers = data.get('answers', {})
     answers[str(question_index)] = answer
     await state.update_data(answers=answers)
 
-    # Kichik feedback (Toast xabar)
+    # --- XABAR MATNINI TAYYORLASH ---
+
     if answer.upper() == correct:
+        # Agar javob TO'G'RI bo'lsa
         msg = random.choice(["✅ To'g'ri!", "✅ Barakalla!", "✅ Ajoyib!"])
     else:
-        msg = random.choice(["❌ Xato!", "❌ Afsuski xato", "❌ Noto'g'ri"])
+        # Agar javob XATO bo'lsa
+        # To'g'ri javob matnini olamiz (dictionarydan: 'a', 'b'...)
+        correct_text = question.get(correct.lower(), "")
 
+        # Telegramda tepadagi xabar (notification) qisqa bo'lishi kerak.
+        # Agar matn 60 ta harfdan uzun bo'lsa, kesib tashlaymiz.
+        if len(correct_text) > 60:
+            correct_text = correct_text[:60] + "..."
+
+        # Xabar ko'rinishi: "Xato! To'g'ri: A) Javob matni..."
+        msg = f"❌ Xato! To'g'ri: {correct}) {correct_text}"
+
+    # show_alert=False (User OK bosishi shart emas, o'zi yo'qoladi)
     await call.answer(msg, show_alert=False)
 
     # Keyingi savolga o'tish
