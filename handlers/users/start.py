@@ -443,7 +443,7 @@ async def buy_course(call: types.CallbackQuery, state: FSMContext):
 ━━━━━━━━━━━━━━━━━━━━
 
 💳 Karta raqami:
-<code>{card_number}</code>
+<b><code>{card_number}</code></b>
 
 👤 Egasi: {card_holder}
 
