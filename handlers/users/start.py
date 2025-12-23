@@ -921,9 +921,8 @@ async def contact_admin_menu(message: types.Message):
     Admin aloqa ma'lumotlarini chiqarish
     """
     # Ma'lumotlarni o'zingizga moslang
-    admin_phone = "+998 90 123 45 67"
-    admin_username = "@AdminUsername"
-    work_hours = "09:00 - 18:00"
+    admin_phone = "+998 90 102 04 40"
+    admin_username = "@it_tat_qabul"
 
     text = f"""
 📞 <b>Admin bilan aloqa</b>
@@ -932,7 +931,6 @@ Savollaringiz bormi? Bizga bog'laning:
 
 📱 <b>Telefon:</b> {admin_phone}
 👤 <b>Telegram:</b> {admin_username}
-🕰 <b>Ish vaqti:</b> {work_hours}
 
 <i>Sizga tez orada javob beramiz!</i>
 """
