@@ -505,7 +505,6 @@ async def generate_and_send_final(call: types.CallbackQuery, telegram_id, course
             f"🆔 Telegram ID: <code>{telegram_id}</code>\n"
             f"📚 Kurs: {course_name}\n"
             f"🔢 Sertifikat ID: {cert_data['code']}\n"
-            f"🏆 Baho: {cert_data['grade']}"
         )
 
         # Adminlarga yuborish
