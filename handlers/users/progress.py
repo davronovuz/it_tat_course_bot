@@ -486,7 +486,6 @@ async def generate_and_send_final(call: types.CallbackQuery, telegram_id, course
             f"🎉 <b>TABRIKLAYMIZ!</b>\n\n"
             f"Siz <b>{course_name}</b> kursini muvaffaqiyatli tamomladingiz!\n\n"
             f"👤 <b>{full_name}</b>\n"
-            f"🏆 Daraja: <b>{cert_data['grade']}</b>\n"
             f"🆔 ID: <code>{cert_data['code']}</code>\n\n"
             f"<i>Ushbu sertifikat rasmiy hisoblanadi.</i>"
         )
