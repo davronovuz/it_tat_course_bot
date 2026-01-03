@@ -271,16 +271,19 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
     # 6. Xabarni tayyorlash
     if passed:
+        # UMUMIY BALLNI OLAMIZ
+        user_total_score = user_db.get_user_score(telegram_id)
+
         result_text = f"""
-🎉 <b>Tabriklaymiz! Testdan o'tdingiz!</b>
+    🎉 <b>Tabriklaymiz! Testdan o'tdingiz!</b>
 
-📚 <b>{lesson_name}</b>
+    📚 <b>{lesson_name}</b>
 
-✅ To'g'ri javoblar: <b>{correct_count}/{total_count}</b>
-📊 Natija: <b>{percentage:.0f}%</b>
+    ✅ To'g'ri javoblar: <b>{correct_count}/{total_count}</b>
+    📊 Shu dars natijasi: <b>{percentage:.0f}%</b>
 
-🎁 Sizga ballar qo'shildi va dars yakunlandi!
-"""
+    🏆 Umumiy ballingiz: <b>{user_total_score}</b> ⭐️
+    """
         if is_last_lesson:
             result_text += "\n🎓 <b>Siz kursni to'liq tugatdingiz! Sertifikat olishingiz mumkin.</b>"
     else:
