@@ -935,3 +935,16 @@ Savollaringiz bormi? Bizga bog'laning:
 <i>Sizga tez orada javob beramiz!</i>
 """
     await message.answer(text)
+
+
+
+COURSE_PLAN_FILE_ID = "BQACAgIAAxkBAAIR0mlZAAE4i5bbCJvsWKvlNdPNkMIsGgACDYgAAj9lyUps2rXTDH6uGDgE"
+
+
+@dp.message_handler(text="📥 Dars rejasi")
+async def send_course_plan(message: types.Message):
+    await bot.send_document(
+        chat_id=message.from_user.id,
+        document=COURSE_PLAN_FILE_ID,
+        caption="📚 Kurs rejasi\n\nBarcha darslar ro'yxati."
+    )

@@ -7,7 +7,7 @@ Tartib: kichik handlerlar yuqorida, katta (muhim) handlerlar pastda
 """
 
 # Kichik/yordamchi handlerlar
-from . import echo
+
 from . import admin_broadcast      # Ommaviy xabar
 from . import admin_feedbacks      # Fikrlar
 from . import admin_settings       # Sozlamalar
