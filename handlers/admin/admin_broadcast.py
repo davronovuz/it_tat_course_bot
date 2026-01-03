@@ -356,12 +356,6 @@ async def receive_buttons(message: types.Message, state: FSMContext):
     await BroadcastStates.time.set()
 
 
-# Botga har qanday hujjat (document) yuborilganda file_id ni qaytaradi
-@dp.message_handler(content_types=['document'])
-async def get_file_id(message: types.Message):
-    file_id = message.document.file_id
-    file_name = message.document.file_name
-    await message.reply(f"Fayl nomi: {file_name}\n\nID: `{file_id}`", parse_mode="Markdown")
 
 
 # ============================================================
