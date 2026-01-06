@@ -18,6 +18,220 @@ from keyboards.inline.user_keyboards import (
     back_to_lessons
 )
 
+def check_has_paid_course(user_id: int) -> bool:
+    """
+    User kursni sotib olganmi?
+    """
+    result = user_db.execute(
+        "SELECT 1 FROM Payments WHERE user_id = ? AND status = 'approved' LIMIT 1",
+        parameters=(user_id,),
+        fetchone=True
+    )
+    if result:
+        return True
+
+    result = user_db.execute(
+        """SELECT 1 FROM ManualAccess WHERE user_id = ? 
+           AND (expires_at IS NULL OR expires_at > datetime('now')) LIMIT 1""",
+        parameters=(user_id,),
+        fetchone=True
+    )
+    return bool(result)
+
+
+# ============================================================
+#                    MENING DARSLARIM TUGMASI
+# ============================================================
+
+@dp.message_handler(text="📚 Mening Darslarim")
+async def my_lessons_handler(message: types.Message):
+    """
+    Mening darslarim tugmasi bosilganda
+    """
+    telegram_id = message.from_user.id
+    user = user_db.get_user(telegram_id)
+
+    # Ro'yxatdan o'tmaganmi?
+    if not user:
+        await message.answer("❌ Avval ro'yxatdan o'ting!\n\n/start buyrug'ini yuboring.")
+        return
+
+    user_id = user['id']
+
+    # Kursni sotib olganmi?
+    if check_has_paid_course(user_id):
+        # Sotib olgan - barcha darslar
+        await show_paid_lessons(message, user_id)
+    else:
+        # Sotib olmagan - faqat bepul darslar
+        await show_free_lessons(message)
+
+
+async def show_paid_lessons(message: types.Message, user_id: int):
+    """
+    Sotib olgan user uchun darslar ro'yxati
+    """
+    lessons = get_all_lessons_with_status(user_id)
+
+    if not lessons:
+        await message.answer("📭 Darslar topilmadi")
+        return
+
+    completed = sum(1 for l in lessons if l['status'] == 'completed')
+    total = len(lessons)
+    percent = int(completed / total * 100) if total > 0 else 0
+    filled = int(percent / 10)
+    bar = "▓" * filled + "░" * (10 - filled)
+
+    text = f"""
+📚 <b>Mening darslarim</b>
+
+📊 Progress: {completed}/{total} ({percent}%)
+[{bar}]
+
+✅ Tugallangan | 🔓 Hozirgi | 🔒 Yopiq
+"""
+    await message.answer(text, reply_markup=simple_lessons_list(lessons))
+
+
+async def show_free_lessons(message: types.Message):
+    """
+    Sotib olmagan user uchun - faqat bepul darslar
+    """
+    free_lessons = user_db.execute(
+        """SELECT l.id, l.name
+           FROM Lessons l
+           JOIN Modules m ON l.module_id = m.id
+           WHERE l.is_free = 1 AND l.is_active = 1 AND m.is_active = 1
+           ORDER BY m.order_num, l.order_num""",
+        fetchall=True
+    )
+
+    if not free_lessons:
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton("💰 Kursni sotib olish", callback_data="user:buy"))
+        await message.answer("📭 Bepul darslar yo'q.\n\n💰 Kursni sotib oling!", reply_markup=keyboard)
+        return
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    for i, (lid, name) in enumerate(free_lessons, 1):
+        keyboard.add(types.InlineKeyboardButton(
+            f"🆓 {i}. {name}",
+            callback_data=f"user:free:{lid}"
+        ))
+    keyboard.add(types.InlineKeyboardButton("💰 To'liq kursni sotib olish", callback_data="user:buy"))
+
+    text = f"""
+🆓 <b>Bepul darslar</b>
+
+Sizda {len(free_lessons)} ta bepul dars mavjud.
+
+🔒 To'liq kursni ochish uchun sotib oling!
+"""
+    await message.answer(text, reply_markup=keyboard)
+
+
+# ============================================================
+#                    BEPUL DARS KO'RISH
+# ============================================================
+
+@dp.callback_query_handler(text_startswith="user:free:")
+async def view_free_lesson(call: types.CallbackQuery):
+    """
+    Bepul darsni ko'rish - TEST YO'Q
+    """
+    lesson_id = int(call.data.split(":")[-1])
+    telegram_id = call.from_user.id
+
+    lesson = user_db.get_lesson(lesson_id)
+
+    # Himoya: faqat bepul darsga ruxsat
+    if not lesson or not lesson.get('is_free'):
+        await call.answer("🔒 Bu pullik dars! Kursni sotib oling.", show_alert=True)
+        return
+
+    try:
+        await call.message.delete()
+    except:
+        pass
+
+    await call.answer("📹 Video yuborilmoqda...")
+
+    # Video yuborish
+    video_file_id = lesson.get('video_file_id')
+    caption = f"🆓 <b>{lesson['name']}</b>\n\n{lesson.get('description') or ''}"
+
+    if video_file_id:
+        try:
+            await bot.send_video(telegram_id, video_file_id, caption=caption, protect_content=True)
+        except:
+            await bot.send_message(telegram_id, caption + "\n\n⚠️ Video yuklanmadi")
+    else:
+        await bot.send_message(telegram_id, caption)
+
+    # Keyingi bepul dars
+    next_free = user_db.execute(
+        """SELECT l.id, l.name FROM Lessons l
+           JOIN Modules m ON l.module_id = m.id
+           WHERE l.is_free = 1 AND l.is_active = 1 AND l.id != ?
+               AND (m.order_num > (SELECT order_num FROM Modules WHERE id = ?)
+                    OR (m.id = ? AND l.order_num > ?))
+           ORDER BY m.order_num, l.order_num LIMIT 1""",
+        parameters=(lesson_id, lesson['module_id'], lesson['module_id'], lesson['order_num']),
+        fetchone=True
+    )
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+
+    if next_free:
+        keyboard.add(types.InlineKeyboardButton(
+            f"⏭ Keyingi: {next_free[1][:20]}...",
+            callback_data=f"user:free:{next_free[0]}"
+        ))
+    else:
+        keyboard.add(types.InlineKeyboardButton(
+            "🎉 Bepul darslar tugadi!",
+            callback_data="user:free_end"
+        ))
+
+    keyboard.add(types.InlineKeyboardButton("💰 To'liq kursni sotib olish", callback_data="user:buy"))
+    keyboard.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="user:free_back"))
+
+    await bot.send_message(telegram_id, "👇 Davom eting:", reply_markup=keyboard)
+
+
+@dp.callback_query_handler(text="user:free_end")
+async def free_lessons_end(call: types.CallbackQuery):
+    """
+    Bepul darslar tugadi
+    """
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(types.InlineKeyboardButton("💰 To'liq kursni sotib olish", callback_data="user:buy"))
+    keyboard.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="user:free_back"))
+
+    await call.message.edit_text(
+        "🎉 <b>Tabriklaymiz!</b>\n\n"
+        "Barcha bepul darslarni ko'rib chiqdingiz.\n\n"
+        "To'liq kursda yana ko'plab darslar va testlar mavjud!",
+        reply_markup=keyboard
+    )
+    await call.answer()
+
+
+@dp.callback_query_handler(text="user:free_back")
+async def free_lessons_back(call: types.CallbackQuery):
+    """
+    Bepul darslar ro'yxatiga qaytish
+    """
+    try:
+        await call.message.delete()
+    except:
+        pass
+
+    await show_free_lessons(call.message)
+    await call.answer()
+
+
 
 # ============================================================
 #                    DARSLAR RO'YXATI
@@ -65,14 +279,13 @@ async def show_lessons_list(call: types.CallbackQuery):
 
     await call.answer()
 
-
 # ============================================================
-#                    DARS KO'RISH
+#                    DARS KO'RISH (HIMOYALANGAN)
 # ============================================================
 @dp.callback_query_handler(text_startswith="user:lesson:")
 async def view_lesson(call: types.CallbackQuery):
     """
-    Darsni ko'rish - BIRDAN VIDEO CHIQADI
+    Darsni ko'rish - FAQAT SOTIB OLGANLARGA
     """
     lesson_id = int(call.data.split(":")[-1])
 
@@ -84,6 +297,12 @@ async def view_lesson(call: types.CallbackQuery):
         return
 
     user_id = user['id']
+
+    # ⛔ HIMOYA: Kursni sotib olganmi?
+    if not check_has_paid_course(user_id):
+        await call.answer("🔒 Bu pullik dars! Kursni sotib oling.", show_alert=True)
+        return
+
     lesson = user_db.get_lesson(lesson_id)
 
     if not lesson:
@@ -132,7 +351,7 @@ async def view_lesson(call: types.CallbackQuery):
 
     if materials_count > 0:
         keyboard.add(types.InlineKeyboardButton(
-            "📎 Materiallar",
+            f"📎 Materiallar ({materials_count})",
             callback_data=f"user:materials:{lesson_id}"
         ))
 
@@ -149,18 +368,40 @@ async def view_lesson(call: types.CallbackQuery):
 
         if next_lesson:
             keyboard.add(types.InlineKeyboardButton(
-                "⏭ Keyingi dars",
+                f"⏭ Keyingi: {next_lesson['name'][:20]}...",
                 callback_data=f"user:lesson:{next_lesson['id']}"
             ))
 
     keyboard.add(types.InlineKeyboardButton(
-        "⬅️ Orqaga",
-        callback_data="user:lessons"
+        "⬅️ Darslar ro'yxati",
+        callback_data="user:paid_back"
     ))
 
     await bot.send_message(telegram_id, "👇 Davom eting:", reply_markup=keyboard)
 
 
+# ============================================================
+#                    ORQAGA TUGMASI (PULLIK)
+# ============================================================
+@dp.callback_query_handler(text="user:paid_back")
+async def paid_lessons_back(call: types.CallbackQuery):
+    """
+    Pullik darslar ro'yxatiga qaytish
+    """
+    telegram_id = call.from_user.id
+    user = user_db.get_user(telegram_id)
+
+    if not user:
+        await call.answer("❌ Xatolik", show_alert=True)
+        return
+
+    try:
+        await call.message.delete()
+    except:
+        pass
+
+    await show_paid_lessons(call.message, user['id'])
+    await call.answer()
 
 # ============================================================
 #                    VIDEO KO'RISH

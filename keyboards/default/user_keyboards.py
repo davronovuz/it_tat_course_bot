@@ -15,6 +15,11 @@ def user_main_menu() -> ReplyKeyboardMarkup:
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 
     keyboard.add(
+        KeyboardButton("📚 Mening Darslarim"),
+
+    )
+
+    keyboard.add(
         KeyboardButton("📞 Admin bilan aloqa"),
         KeyboardButton("👥 Taklif qilish")
     )
@@ -32,7 +37,7 @@ def main_menu() -> ReplyKeyboardMarkup:
     Asosiy menyu - ro'yxatdan o'tgan userlar uchun
     """
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    keyboard.add(KeyboardButton("📚 Darslar"))
+    keyboard.add(KeyboardButton("📚 Mening Darslarim"))
     keyboard.add(KeyboardButton("👥 Do'stlarni taklif qilish"))
     keyboard.add(KeyboardButton("📊 Mening statistikam"))
     return keyboard
