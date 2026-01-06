@@ -8,6 +8,7 @@ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 
+from data.config import ADMINS
 from loader import dp, user_db
 
 
@@ -25,7 +26,7 @@ async def reset_command(message: types.Message):
     /reset_all_data - Barcha ma'lumotlarni tozalash
     """
     # Super admin tekshiruvi
-    if not user_db.is_super_admin(message.from_user.id):
+    if message.from_user.id not in ADMINS:
         await message.answer("❌ Faqat super admin ishlatishi mumkin!")
         return
 
