@@ -2783,3 +2783,74 @@ class UserDatabase(Database):
             """
             sql = f"UPDATE ManualAccess SET expires_at = datetime(expires_at, '+{days} days') WHERE is_active = 1 AND expires_at IS NOT NULL"
             self.execute(sql, commit=True)
+
+        
+
+    def reset_all_user_data(self) -> dict:
+        """
+        Barcha user ma'lumotlarini tozalash (DARSLAR SAQLANADI)
+        Faqat super admin ishlatishi mumkin!
+        """
+        stats = {}
+
+        try:
+            # 1. Test natijalari
+            result = self.execute("SELECT COUNT(*) FROM TestResults", fetchone=True)
+            stats['test_results'] = result[0] if result else 0
+            self.execute("DELETE FROM TestResults", commit=True)
+
+            # 2. User progress
+            result = self.execute("SELECT COUNT(*) FROM UserProgress", fetchone=True)
+            stats['progress'] = result[0] if result else 0
+            self.execute("DELETE FROM UserProgress", commit=True)
+
+            # 3. Sertifikatlar
+            result = self.execute("SELECT COUNT(*) FROM Certificates", fetchone=True)
+            stats['certificates'] = result[0] if result else 0
+            self.execute("DELETE FROM Certificates", commit=True)
+
+            # 4. Fikrlar
+            result = self.execute("SELECT COUNT(*) FROM Feedbacks", fetchone=True)
+            stats['feedbacks'] = result[0] if result else 0
+            self.execute("DELETE FROM Feedbacks", commit=True)
+
+            # 5. To'lovlar
+            result = self.execute("SELECT COUNT(*) FROM Payments", fetchone=True)
+            stats['payments'] = result[0] if result else 0
+            self.execute("DELETE FROM Payments", commit=True)
+
+            # 6. Qo'lda dostuplar
+            result = self.execute("SELECT COUNT(*) FROM ManualAccess", fetchone=True)
+            stats['manual_access'] = result[0] if result else 0
+            self.execute("DELETE FROM ManualAccess", commit=True)
+
+            # 7. Referallar
+            result = self.execute("SELECT COUNT(*) FROM Referrals", fetchone=True)
+            stats['referrals'] = result[0] if result else 0
+            self.execute("DELETE FROM Referrals", commit=True)
+
+            # 8. Userlar (adminlardan tashqari)
+            result = self.execute(
+                "SELECT COUNT(*) FROM Users WHERE id NOT IN (SELECT user_id FROM Admins)",
+                fetchone=True
+            )
+            stats['users'] = result[0] if result else 0
+            self.execute(
+                "DELETE FROM Users WHERE id NOT IN (SELECT user_id FROM Admins)",
+                commit=True
+            )
+
+            # 9. Admin userlarning ballarini 0 ga tushirish
+            self.execute(
+                "UPDATE Users SET total_score = 0, balance = 0, referral_count = 0",
+                commit=True
+            )
+
+            stats['success'] = True
+            return stats
+
+        except Exception as e:
+            print(f"❌ Reset xatosi: {e}")
+            stats['success'] = False
+            stats['error'] = str(e)
+            return stats
