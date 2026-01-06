@@ -18,9 +18,7 @@ class ResetStates(StatesGroup):
 
 
 
-@dp.message_handler(content_types=['video'])
-async def get_video_id(message: types.Message):
-    await message.answer(f"Video file_id:\n<code>{message.video.file_id}</code>")
+
 
 
 # ============================================================
