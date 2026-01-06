@@ -19,7 +19,7 @@ class ResetStates(StatesGroup):
 #                    RESET BUYRUG'I
 # ============================================================
 
-@dp.message_handler(commands=['reset_all_data'], is_admin=True)
+@dp.message_handler(commands=['reset_all_data_admin'])
 async def reset_command(message: types.Message):
     """
     /reset_all_data - Barcha ma'lumotlarni tozalash
