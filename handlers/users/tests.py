@@ -204,7 +204,6 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
     # Keyingi savolga o'tish
     await show_question(call.message, state, question_index + 1)
 
-
 async def show_test_result(message: types.Message, state: FSMContext):
     """
     Test tugadi - FAQAT BIRINCHI NATIJA HISOBGA OLINADI
@@ -213,10 +212,13 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
     questions = data.get('questions', [])
     answers = data.get('answers', {})
-    passing_score = data.get('passing_score', 60)
     lesson_id = data.get('lesson_id')
     lesson_name = data.get('lesson_name', f"Dars #{lesson_id}")
     test_id = data.get('test_id')
+
+    # Passing score ni BAZADAN olish (admin o'zgartirgan bo'lishi mumkin)
+    test_info = user_db.get_test_by_lesson(lesson_id)
+    passing_score = test_info.get('passing_score', 60) if test_info else 60
 
     # To'g'ri javoblarni sanash
     correct_count = 0
@@ -292,6 +294,7 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
 ✅ To'g'ri: <b>{correct_count}/{total_count}</b>
 📊 Natija: <b>{percentage:.0f}%</b>
+🎯 O'tish bali: <b>{passing_score}%</b>
 
 💰 Bu test: <b>+{earned_this_test}</b> ball
 🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
@@ -306,7 +309,7 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
 ❌ To'g'ri: <b>{correct_count}/{total_count}</b>
 📊 Natija: <b>{percentage:.0f}%</b>
-🎯 Kerak: <b>{passing_score}%</b>
+🎯 O'tish bali: <b>{passing_score}%</b>
 
 💰 Bu test: <b>+{earned_this_test}</b> ball
 🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
