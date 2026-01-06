@@ -2784,7 +2784,7 @@ class UserDatabase(Database):
             sql = f"UPDATE ManualAccess SET expires_at = datetime(expires_at, '+{days} days') WHERE is_active = 1 AND expires_at IS NOT NULL"
             self.execute(sql, commit=True)
 
-        
+
 
     def reset_all_user_data(self) -> dict:
         """
@@ -2854,3 +2854,86 @@ class UserDatabase(Database):
             stats['success'] = False
             stats['error'] = str(e)
             return stats
+
+    def get_test_count(self) -> int:
+        """
+        Testli darslar soni
+        """
+        result = self.execute(
+            """SELECT COUNT(*) FROM Lessons l
+               JOIN Modules m ON l.module_id = m.id
+               WHERE l.is_active = 1 AND m.is_active = 1 AND l.has_test = 1""",
+            fetchone=True
+        )
+        return result[0] if result else 1
+
+    def has_completed_test(self, user_id: int, test_id: int) -> bool:
+        """
+        User bu testni oldin ishlaganmi?
+        """
+        result = self.execute(
+            "SELECT 1 FROM TestResults WHERE user_id = ? AND test_id = ? LIMIT 1",
+            parameters=(user_id, test_id),
+            fetchone=True
+        )
+        return result is not None
+
+    def get_first_test_score(self, user_id: int, test_id: int) -> float:
+        """
+        Userning shu testdagi BIRINCHI natijasi
+        """
+        result = self.execute(
+            "SELECT score FROM TestResults WHERE user_id = ? AND test_id = ? ORDER BY id ASC LIMIT 1",
+            parameters=(user_id, test_id),
+            fetchone=True
+        )
+        return result[0] if result and result[0] else 0
+
+    def calculate_total_score(self, telegram_id: int) -> float:
+        """
+        Userning umumiy balini hisoblash (100 ball tizimi)
+        """
+        user_id = self.get_user_id(telegram_id)
+        if not user_id:
+            return 0
+
+        test_count = self.get_test_count()
+        if test_count == 0:
+            return 0
+
+        ball_per_test = 100 / test_count
+
+        results = self.execute(
+            """SELECT test_id, score FROM TestResults 
+               WHERE user_id = ? 
+               AND id IN (
+                   SELECT MIN(id) FROM TestResults 
+                   WHERE user_id = ? 
+                   GROUP BY test_id
+               )""",
+            parameters=(user_id, user_id),
+            fetchall=True
+        )
+
+        if not results:
+            return 0
+
+        total = 0
+        for test_id, score in results:
+            total += (score / 100) * ball_per_test
+
+        return round(total, 1)
+
+    def update_user_total_score(self, telegram_id: int) -> float:
+        """
+        Userning umumiy balini qayta hisoblash va saqlash
+        """
+        new_score = self.calculate_total_score(telegram_id)
+
+        self.execute(
+            "UPDATE Users SET total_score = ? WHERE telegram_id = ?",
+            parameters=(new_score, telegram_id),
+            commit=True
+        )
+
+        return new_score

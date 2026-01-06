@@ -205,24 +205,20 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
     await show_question(call.message, state, question_index + 1)
 
 
-# ============================================================
-#                    TEST NATIJASI (MUHIM QISM)
-# ============================================================
 async def show_test_result(message: types.Message, state: FSMContext):
     """
-    Test tugadi, natijani hisoblash va darsni ochish/yopish (YANGILANGAN)
+    Test tugadi - FAQAT BIRINCHI NATIJA HISOBGA OLINADI
     """
-    # 1. Barcha kerakli ma'lumotlarni olamiz
     data = await state.get_data()
 
     questions = data.get('questions', [])
     answers = data.get('answers', {})
     passing_score = data.get('passing_score', 60)
     lesson_id = data.get('lesson_id')
-    lesson_name = data.get('lesson_name', f"Dars #{lesson_id}")  # Dars nomi qo'shildi
+    lesson_name = data.get('lesson_name', f"Dars #{lesson_id}")
     test_id = data.get('test_id')
 
-    # 2. To'g'ri javoblarni sanash
+    # To'g'ri javoblarni sanash
     correct_count = 0
     total_count = len(questions)
 
@@ -232,91 +228,119 @@ async def show_test_result(message: types.Message, state: FSMContext):
         if user_answer and user_answer.upper() == correct_answer:
             correct_count += 1
 
-    # 3. Natija foizini hisoblash
+    # Foiz hisoblash
     percentage = (correct_count / total_count * 100) if total_count > 0 else 0
     passed = percentage >= passing_score
 
-    # 4. Bazaga yozish (LOGIKA BUZILMAYDI)
     telegram_id = message.chat.id
     user = user_db.get_user(telegram_id)
 
+    is_first_attempt = True
+    first_score = 0
+
     if user:
-        # Natijani saqlash
-        user_db.save_test_result(
-            telegram_id=telegram_id,
-            test_id=test_id,
-            score=int(percentage),
-            total_questions=total_count,
-            correct_answers=correct_count,
-            answers=answers
-        )
+        user_id = user['id']
 
-        # Ball berish (har 10% uchun 1 ball)
-        user_db.add_score(telegram_id, int(percentage / 10))
+        # Bu test oldin ishlanganmi?
+        is_first_attempt = not user_db.has_completed_test(user_id, test_id)
 
-        # Agar o'tgan bo'lsa -> Darsni "Completed" qilish
-        if passed:
-            current_status = get_lesson_status(user['id'], lesson_id)
-            if current_status != 'completed':
-                complete_lesson_db(user['id'], lesson_id)
-                user_db.add_score(telegram_id, 10)  # Dars tugagani uchun bonus
+        if is_first_attempt:
+            # BIRINCHI MARTA - natijani saqlash
+            user_db.save_test_result(
+                telegram_id=telegram_id,
+                test_id=test_id,
+                score=int(percentage),
+                total_questions=total_count,
+                correct_answers=correct_count,
+                answers=answers
+            )
 
-    # 5. Keyingi darsni aniqlash
+            # Umumiy balni yangilash
+            user_db.update_user_total_score(telegram_id)
+
+            # Agar o'tgan bo'lsa -> Darsni "Completed" qilish
+            if passed:
+                current_status = get_lesson_status(user_id, lesson_id)
+                if current_status != 'completed':
+                    complete_lesson_db(user_id, lesson_id)
+        else:
+            # QAYTA ISHLASH - birinchi natijani olamiz
+            first_score = user_db.get_first_test_score(user_id, test_id)
+
+    # Keyingi dars
     next_lesson = get_next_lesson(lesson_id)
     is_last_lesson = next_lesson is None
 
-    # Course ID ni aniqlash
+    # Course ID
     lesson_info = user_db.get_lesson(lesson_id)
     course_id = lesson_info['course_id'] if lesson_info else 1
 
-    # 6. Xabarni tayyorlash
-    if passed:
-        # UMUMIY BALLNI OLAMIZ
-        user_total_score = user_db.get_user_score(telegram_id)
+    # Ball hisoblash
+    test_count = user_db.get_test_count()
+    ball_per_test = round(100 / test_count, 2)
+    user_total_score = user_db.calculate_total_score(telegram_id)
 
-        result_text = f"""
-    🎉 <b>Tabriklaymiz! Testdan o'tdingiz!</b>
+    # Xabar tayyorlash
+    if is_first_attempt:
+        earned_this_test = round((percentage / 100) * ball_per_test, 2)
 
-    📚 <b>{lesson_name}</b>
-
-    ✅ To'g'ri javoblar: <b>{correct_count}/{total_count}</b>
-    📊 Shu dars natijasi: <b>{percentage:.0f}%</b>
-
-    🏆 Umumiy ballingiz: <b>{user_total_score}</b> ⭐️
-    """
-        if is_last_lesson:
-            result_text += "\n🎓 <b>Siz kursni to'liq tugatdingiz! Sertifikat olishingiz mumkin.</b>"
-    else:
-        result_text = f"""
-😔 <b>Afsuski, yetarli ball to'play olmadingiz.</b>
+        if passed:
+            result_text = f"""
+🎉 <b>Tabriklaymiz! Testdan o'tdingiz!</b>
 
 📚 <b>{lesson_name}</b>
 
+✅ To'g'ri: <b>{correct_count}/{total_count}</b>
 📊 Natija: <b>{percentage:.0f}%</b>
-🎯 Talab qilinadi: <b>{passing_score}%</b>
 
-🔄 Darsni qayta ko'rib chiqib, testni qayta topshiring.
+💰 Bu test: <b>+{earned_this_test}</b> ball
+🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
+"""
+            if is_last_lesson:
+                result_text += "\n🎓 <b>Kurs tugadi! Sertifikat oling.</b>"
+        else:
+            result_text = f"""
+😔 <b>O'ta olmadingiz</b>
+
+📚 <b>{lesson_name}</b>
+
+❌ To'g'ri: <b>{correct_count}/{total_count}</b>
+📊 Natija: <b>{percentage:.0f}%</b>
+🎯 Kerak: <b>{passing_score}%</b>
+
+💰 Bu test: <b>+{earned_this_test}</b> ball
+🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
+
+⚠️ <i>Keyingi darsga o'tish uchun qayta urining!</i>
+"""
+    else:
+        first_earned = round((first_score / 100) * ball_per_test, 2)
+
+        result_text = f"""
+📝 <b>Test yakunlandi</b>
+
+📚 <b>{lesson_name}</b>
+
+📊 Hozirgi: <b>{percentage:.0f}%</b>
+📊 Birinchi: <b>{first_score:.0f}%</b>
+
+💰 Hisobga olindi: <b>{first_earned}</b> ball
+🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
+
+⚠️ <i>Faqat birinchi natija hisobga olinadi.</i>
 """
 
-    # 7. State ni yopamiz
     await state.finish()
 
-    # ========================================================
-    # ⚠️ O'ZGARISH SHU YERDA (XABARLARNI AJRATISH)
-    # ========================================================
-
-    # A) Eski savol turgan xabarni o'chiramiz (chalg'itmasligi uchun)
     try:
         await message.delete()
     except:
         pass
 
-    # B) NATIJA XABARI (Tugmasiz) - Bu tarixda qoladi
     await message.answer(result_text)
 
-    # C) MENYU TUGMALARI (Alohida xabar) - Bu keyinchalik o'zgaradi
     await message.answer(
-        "⬇️ <b>Kerakli amalni tanlang:</b>",
+        "⬇️ <b>Tanlang:</b>",
         reply_markup=test_result(
             lesson_id=lesson_id,
             passed=passed,

@@ -32,20 +32,25 @@ async def show_referral(message: types.Message):
     earned_text = f"{total_earned:,.0f}".replace(",", " ")
 
     text = f"""
-👥 <b>Hamkorlik Dasturi</b>
+    👥 <b>Hamkorlik Dasturi</b>
 
-Do'stlaringizni taklif qiling va har bir xarid uchun <b>{cashback_percent}% cashback</b> oling!
+    Do'stlaringizni taklif qiling va har bir xarid uchun <b>{cashback_percent}% cashback</b> oling!
+    
+    ⚠️ <b>Do'stingiz to'lov qilsa, biz bilan bog'laning!</b>
 
-🔗 <b>Sizning shaxsiy havolangiz:</b>
-<code>{ref_link}</code>
-(Ushbu havolani nusxalab, do'stlaringizga yuboring)
 
-📊 <b>Sizning natijalaringiz:</b>
-👥 Taklif qilinganlar: <b>{total_invited} ta</b>
-💰 Ishlangan mablag': <b>{earned_text} so'm</b>
+    🔗 <b>Sizning shaxsiy havolangiz:</b>
+    <code>{ref_link}</code>
+    (Ushbu havolani nusxalab, do'stlaringizga yuboring)
 
-<i>💡 Adminlarimiz yig'ilgan mablag'ni kartangizga o'tkazib berishadi.</i>
-"""
+    📊 <b>Sizning natijalaringiz:</b>
+    👥 Taklif qilinganlar: <b>{total_invited} ta</b>
+    💰 Ishlangan mablag': <b>{earned_text} so'm</b>
+
+    ⚠️ <b>Do'stingiz to'lov qilsa, biz bilan bog'laning!</b>
+
+    💡 <i>Adminlarimiz mablag'ni kartangizga o'tkazib berishadi.</i>
+    """
 
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(types.InlineKeyboardButton(
