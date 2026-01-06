@@ -140,7 +140,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             return
 
     # Video qo'llanma + Xush kelibsiz + Tugma (HAMMASI BITTA XABARDA)
-    VIDEO_GUIDE_FILE_ID = "BU_YERGA_VIDEO_FILE_ID_YOZING"  # Video file_id ni qo'ying
+    VIDEO_GUIDE_FILE_ID = "BAACAgIAAxkBAAIY0GldnfPEoz4JFofvHLqr2KMyeVqBAAJDkwACxhnwSlqG_XGbrn5FOAQ"  # Video file_id ni qo'ying
 
     caption = """
     📹 <b>Botdan foydalanish qo'llanmasi</b>
