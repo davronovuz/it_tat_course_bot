@@ -66,10 +66,9 @@ async def my_lessons_handler(message: types.Message):
         # Sotib olmagan - faqat bepul darslar
         await show_free_lessons(message)
 
-
 async def show_paid_lessons(message: types.Message, user_id: int):
     """
-    Sotib olgan user uchun darslar ro'yxati
+    Sotib olgan user uchun - qisqa ko'rinish (3 ta dars)
     """
     lessons = get_all_lessons_with_status(user_id)
 
@@ -83,15 +82,105 @@ async def show_paid_lessons(message: types.Message, user_id: int):
     filled = int(percent / 10)
     bar = "▓" * filled + "░" * (10 - filled)
 
+    # Hozirgi ochiq darsni topish
+    current_index = 0
+    for i, l in enumerate(lessons):
+        if l['status'] == 'unlocked':
+            current_index = i
+            break
+        elif l['status'] == 'completed':
+            current_index = i
+
+    # Ko'rsatiladigan darslar: oldingi 1 + hozirgi + keyingi 1
+    start = max(0, current_index - 1)
+    end = min(len(lessons), current_index + 2)
+    visible_lessons = lessons[start:end]
+
     text = f"""
 📚 <b>Mening darslarim</b>
 
 📊 Progress: {completed}/{total} ({percent}%)
 [{bar}]
 
-✅ Tugallangan | 🔓 Hozirgi | 🔒 Yopiq
+📍 Siz hozir <b>{current_index + 1}</b>-darsdasiz
 """
-    await message.answer(text, reply_markup=simple_lessons_list(lessons))
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+
+    for lesson in visible_lessons:
+        status = lesson['status']
+        order = lesson['order_num']
+        name = lesson['name']
+
+        if status == 'completed':
+            icon = "✅"
+            callback = f"user:lesson:{lesson['id']}"
+        elif status == 'unlocked':
+            icon = "🔓"
+            callback = f"user:lesson:{lesson['id']}"
+        else:
+            icon = "🔒"
+            callback = f"user:locked:{lesson['id']}"
+
+        # Hozirgi darsni ajratib ko'rsatish
+        if status == 'unlocked':
+            btn_text = f"▶️ {order}. {name}"
+        else:
+            btn_text = f"{icon} {order}. {name}"
+
+        keyboard.add(types.InlineKeyboardButton(btn_text, callback_data=callback))
+
+    # Barcha darslar tugmasi
+    keyboard.add(types.InlineKeyboardButton(
+        f"📋 Barcha darslar ({total} ta)",
+        callback_data="user:all_lessons"
+    ))
+
+    await message.answer(text, reply_markup=keyboard)
+
+
+# ============================================================
+#                    BARCHA DARSLAR RO'YXATI
+# ============================================================
+@dp.callback_query_handler(text="user:all_lessons")
+async def show_all_lessons(call: types.CallbackQuery):
+    """
+    To'liq darslar ro'yxati
+    """
+    telegram_id = call.from_user.id
+    user = user_db.get_user(telegram_id)
+
+    if not user:
+        await call.answer("❌ Xatolik", show_alert=True)
+        return
+
+    user_id = user['id']
+
+    if not check_has_paid_course(user_id):
+        await call.answer("🔒 Kursni sotib oling!", show_alert=True)
+        return
+
+    lessons = get_all_lessons_with_status(user_id)
+
+    if not lessons:
+        await call.answer("📭 Darslar topilmadi", show_alert=True)
+        return
+
+    completed = sum(1 for l in lessons if l['status'] == 'completed')
+    total = len(lessons)
+
+    text = f"""
+📋 <b>Barcha darslar</b>
+
+✅ Tugallangan: {completed}/{total}
+"""
+
+    keyboard = simple_lessons_list(lessons)
+    keyboard.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="user:paid_back"))
+
+    await call.message.edit_text(text, reply_markup=keyboard)
+    await call.answer()
+
 
 
 async def show_free_lessons(message: types.Message):
