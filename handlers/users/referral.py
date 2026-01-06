@@ -47,8 +47,6 @@ async def show_referral(message: types.Message):
     👥 Taklif qilinganlar: <b>{total_invited} ta</b>
     💰 Ishlangan mablag': <b>{earned_text} so'm</b>
 
-    ⚠️ <b>Do'stingiz to'lov qilsa, biz bilan bog'laning!</b>
-
     💡 <i>Adminlarimiz mablag'ni kartangizga o'tkazib berishadi.</i>
     """
 

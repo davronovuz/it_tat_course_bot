@@ -139,15 +139,29 @@ async def cmd_start(message: types.Message, state: FSMContext):
             await show_lessons_list(message, user['id'])
             return
 
-    text = """
+    # Video qo'llanma + Xush kelibsiz + Tugma (HAMMASI BITTA XABARDA)
+    VIDEO_GUIDE_FILE_ID = "BU_YERGA_VIDEO_FILE_ID_YOZING"  # Video file_id ni qo'ying
+
+    caption = """
+    📹 <b>Botdan foydalanish qo'llanmasi</b>
+
     <b>IT TAT markazining Online Kompyuter Savodxonlik Kursiga xush kelibsiz!</b>
 
-    Siz hozir o‘zingizni rivojlantirish, yangi ko‘nikmalar orttirish va kelajagingizga sarmoya qilish yo‘lida birinchi va eng muhim qadamni tashladingiz.
+    Siz hozir o'zingizni rivojlantirish, yangi ko'nikmalar orttirish va kelajagingizga sarmoya qilish yo'lida birinchi va eng muhim qadamni tashladingiz.
 
     Avval bepul demo darsni ko'rib chiqing 👇
     """
 
-    await message.answer(text, reply_markup=demo_lesson_button())
+    try:
+        await message.answer_video(
+            VIDEO_GUIDE_FILE_ID,
+            caption=caption,
+            reply_markup=demo_lesson_button(),
+            protect_content=True
+        )
+    except:
+        # Video yuklanmasa, oddiy xabar
+        await message.answer(caption, reply_markup=demo_lesson_button())
 
 
 # ============================================================
