@@ -136,8 +136,11 @@ async def show_questions_list(call: types.CallbackQuery):
 
     test = user_db.get_test_by_lesson(lesson_id)
     if not test:
-        await call.answer("❌ Test topilmadi!", show_alert=True)
-        return
+        test_id = user_db.add_test(lesson_id, passing_score=60)
+        if not test_id:
+            await call.answer("❌ Test yaratishda xatolik!", show_alert=True)
+            return
+        test = {'id': test_id}
 
     questions = user_db.get_test_questions(test['id'])
 
@@ -185,8 +188,11 @@ async def add_question_start(call: types.CallbackQuery, state: FSMContext):
 
     test = user_db.get_test_by_lesson(lesson_id)
     if not test:
-        await call.answer("❌ Test topilmadi!", show_alert=True)
-        return
+        test_id = user_db.add_test(lesson_id, passing_score=60)
+        if not test_id:
+            await call.answer("❌ Test yaratishda xatolik!", show_alert=True)
+            return
+        test = {'id': test_id}
 
     await state.update_data(
         lesson_id=lesson_id,
@@ -837,11 +843,17 @@ async def upload_excel_start(call: types.CallbackQuery, state: FSMContext):
     lesson_id = int(call.data.split(":")[-1])
     test = user_db.get_test_by_lesson(lesson_id)
 
-    if not test:
-        await call.answer("❌ Test topilmadi!", show_alert=True)
-        return
+    test = user_db.get_test_by_lesson(lesson_id)
 
-    await state.update_data(lesson_id=lesson_id, test_id=test['id'])
+    if not test:
+        test_id = user_db.add_test(lesson_id, passing_score=60)
+        if not test_id:
+            await call.answer("❌ Test yaratishda xatolik!", show_alert=True)
+            return
+    else:
+        test_id = test['id']
+
+    await state.update_data(lesson_id=lesson_id, test_id=test_id)
 
     text = """
 📤 <b>Excel orqali savollar yuklash</b>
