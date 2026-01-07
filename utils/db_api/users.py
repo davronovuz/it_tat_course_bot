@@ -1042,13 +1042,37 @@ class UserDatabase(Database):
     # ============================================================
 
     def add_test(self, lesson_id: int, name: str = None, passing_score: int = 60) -> Optional[int]:
-        """Darsga test qo'shish"""
+        """Darsga test qo'shish (yoki mavjudini qayta faollashtirish)"""
         try:
-            self.execute(
-                "INSERT INTO Tests (lesson_id, name, passing_score) VALUES (?, ?, ?)",
-                parameters=(lesson_id, name, passing_score),
-                commit=True
+            # Avval o'chirilgan test bormi tekshirish
+            existing = self.execute(
+                "SELECT id FROM Tests WHERE lesson_id = ?",
+                parameters=(lesson_id,),
+                fetchone=True
             )
+
+            if existing:
+                # Mavjud testni qayta faollashtirish
+                self.execute(
+                    "UPDATE Tests SET is_active = TRUE, passing_score = ? WHERE lesson_id = ?",
+                    parameters=(passing_score, lesson_id),
+                    commit=True
+                )
+                test_id = existing[0]
+            else:
+                # Yangi test yaratish
+                self.execute(
+                    "INSERT INTO Tests (lesson_id, name, passing_score) VALUES (?, ?, ?)",
+                    parameters=(lesson_id, name, passing_score),
+                    commit=True
+                )
+
+                result = self.execute(
+                    "SELECT id FROM Tests WHERE lesson_id = ?",
+                    parameters=(lesson_id,),
+                    fetchone=True
+                )
+                test_id = result[0] if result else None
 
             # Darsda test borligini belgilash
             self.execute(
@@ -1057,12 +1081,7 @@ class UserDatabase(Database):
                 commit=True
             )
 
-            result = self.execute(
-                "SELECT id FROM Tests WHERE lesson_id = ?",
-                parameters=(lesson_id,),
-                fetchone=True
-            )
-            return result[0] if result else None
+            return test_id
 
         except Exception as e:
             print(f"❌ Test qo'shishda xato: {e}")
