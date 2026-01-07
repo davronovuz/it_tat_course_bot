@@ -1037,10 +1037,6 @@ class UserDatabase(Database):
         )
         return result[0] if result else 0
 
-    # ============================================================
-    #                    TEST METODLARI
-    # ============================================================
-
     def add_test(self, lesson_id: int, name: str = None, passing_score: int = 60) -> Optional[int]:
         """Darsga test qo'shish (yoki mavjudini qayta faollashtirish)"""
         try:
@@ -1059,6 +1055,13 @@ class UserDatabase(Database):
                     commit=True
                 )
                 test_id = existing[0]
+
+                # ESKI SAVOLLARNI O'CHIRISH
+                self.execute(
+                    "DELETE FROM Questions WHERE test_id = ?",
+                    parameters=(test_id,),
+                    commit=True
+                )
             else:
                 # Yangi test yaratish
                 self.execute(
