@@ -828,7 +828,6 @@ async def cancel_delete_test(call: types.CallbackQuery):
 
     await call.answer("❌ Bekor qilindi")
 
-
 # ============================================================
 #                    EXCEL YUKLASH
 # ============================================================
@@ -843,9 +842,8 @@ async def upload_excel_start(call: types.CallbackQuery, state: FSMContext):
     lesson_id = int(call.data.split(":")[-1])
     test = user_db.get_test_by_lesson(lesson_id)
 
-    test = user_db.get_test_by_lesson(lesson_id)
-
     if not test:
+        # Test yo'q - avtomatik yaratamiz
         test_id = user_db.add_test(lesson_id, passing_score=60)
         if not test_id:
             await call.answer("❌ Test yaratishda xatolik!", show_alert=True)
@@ -866,11 +864,11 @@ Excel fayl formati:
 └────────────────────────────────────────┘
 
 <b>Qoidalar:</b>
-• Birinchi qator - sarlavhalar (o'tkazib yuboriladi)
-• "Savol" - savol matni
-• "A", "B", "C", "D" - javob variantlari
-• "Togri" - to'g'ri javob (A, B, C yoki D)
-• C va D variantlari bo'sh bo'lishi mumkin
+- Birinchi qator - sarlavhalar (o'tkazib yuboriladi)
+- "Savol" - savol matni
+- "A", "B", "C", "D" - javob variantlari
+- "Togri" - to'g'ri javob (A, B, C yoki D)
+- C va D variantlari bo'sh bo'lishi mumkin
 
 📎 Excel faylni yuboring:
 """
@@ -893,6 +891,15 @@ async def upload_excel_file(message: types.Message, state: FSMContext):
 
     await message.answer("⏳ Fayl yuklanmoqda...")
 
+    data = await state.get_data()
+    test_id = data.get('test_id')
+    lesson_id = data.get('lesson_id')
+
+    if not test_id or not lesson_id:
+        await message.answer("❌ Xatolik: Test ma'lumotlari topilmadi!", reply_markup=types.ReplyKeyboardRemove())
+        await state.finish()
+        return
+
     try:
         import io
         import openpyxl
@@ -904,10 +911,6 @@ async def upload_excel_file(message: types.Message, state: FSMContext):
         # Excel faylni o'qish
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes.read()))
         ws = wb.active
-
-        data = await state.get_data()
-        test_id = data['test_id']
-        lesson_id = data['lesson_id']
 
         # Savollarni qo'shish
         questions_added = 0
@@ -951,22 +954,21 @@ async def upload_excel_file(message: types.Message, state: FSMContext):
             except Exception as e:
                 errors.append(f"Qator {row_num}: {str(e)}")
 
-        # Natija
+        # Natija xabari
         result_text = f"✅ <b>Yuklash yakunlandi!</b>\n\n"
         result_text += f"📊 Qo'shilgan savollar: <b>{questions_added}</b> ta\n"
 
         if errors:
             result_text += f"\n⚠️ <b>Xatolar ({len(errors)}):</b>\n"
-            for error in errors[:5]:  # Faqat birinchi 5 ta xato
+            for error in errors[:5]:
                 result_text += f"• {error}\n"
             if len(errors) > 5:
                 result_text += f"• ... va yana {len(errors) - 5} ta xato"
 
         await message.answer(result_text, reply_markup=types.ReplyKeyboardRemove())
 
-        # Test menyusiga qaytish
-        test = user_db.get_test_by_lesson(lesson_id)
-        questions = user_db.get_test_questions(test['id'])
+        # Test menyusiga qaytish - XAVFSIZ usul
+        questions = user_db.get_test_questions(test_id)
 
         await message.answer(
             f"📋 Jami savollar: {len(questions)} ta",
