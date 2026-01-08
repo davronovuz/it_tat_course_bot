@@ -2891,10 +2891,14 @@ class UserDatabase(Database):
 
     def has_completed_test(self, user_id: int, test_id: int) -> bool:
         """
-        User bu testni oldin ishlaganmi?
+        User bu testdan O'TGANMI? (o'tish balidan yuqori natija bormi?)
+        Faqat O'TGAN bo'lsa True qaytaradi
         """
         result = self.execute(
-            "SELECT 1 FROM TestResults WHERE user_id = ? AND test_id = ? LIMIT 1",
+            """SELECT 1 FROM TestResults tr
+               JOIN Tests t ON tr.test_id = t.id
+               WHERE tr.user_id = ? AND tr.test_id = ? AND tr.score >= t.passing_score
+               LIMIT 1""",
             parameters=(user_id, test_id),
             fetchone=True
         )

@@ -204,9 +204,10 @@ async def answer_question(call: types.CallbackQuery, state: FSMContext):
     # Keyingi savolga o'tish
     await show_question(call.message, state, question_index + 1)
 
+
 async def show_test_result(message: types.Message, state: FSMContext):
     """
-    Test tugadi - FAQAT BIRINCHI NATIJA HISOBGA OLINADI
+    Test tugadi - FAQAT O'TISH BALIDAN O'TGAN BIRINCHI NATIJA SAQLANADI
     """
     data = await state.get_data()
 
@@ -216,7 +217,7 @@ async def show_test_result(message: types.Message, state: FSMContext):
     lesson_name = data.get('lesson_name', f"Dars #{lesson_id}")
     test_id = data.get('test_id')
 
-    # Passing score ni BAZADAN olish (admin o'zgartirgan bo'lishi mumkin)
+    # Passing score ni BAZADAN olish
     test_info = user_db.get_test_by_lesson(lesson_id)
     passing_score = test_info.get('passing_score', 60) if test_info else 60
 
@@ -237,17 +238,17 @@ async def show_test_result(message: types.Message, state: FSMContext):
     telegram_id = message.chat.id
     user = user_db.get_user(telegram_id)
 
-    is_first_attempt = True
+    has_passed_before = False
     first_score = 0
 
     if user:
         user_id = user['id']
 
-        # Bu test oldin ishlanganmi?
-        is_first_attempt = not user_db.has_completed_test(user_id, test_id)
+        # Bu testdan O'TGANMI? (o'tish balidan yuqori)
+        has_passed_before = user_db.has_completed_test(user_id, test_id)
 
-        if is_first_attempt:
-            # BIRINCHI MARTA - natijani saqlash
+        if passed and not has_passed_before:
+            # BIRINCHI MARTA O'TDI - natijani saqlash
             user_db.save_test_result(
                 telegram_id=telegram_id,
                 test_id=test_id,
@@ -260,13 +261,13 @@ async def show_test_result(message: types.Message, state: FSMContext):
             # Umumiy balni yangilash
             user_db.update_user_total_score(telegram_id)
 
-            # Agar o'tgan bo'lsa -> Darsni "Completed" qilish
-            if passed:
-                current_status = get_lesson_status(user_id, lesson_id)
-                if current_status != 'completed':
-                    complete_lesson_db(user_id, lesson_id)
-        else:
-            # QAYTA ISHLASH - birinchi natijani olamiz
+            # Darsni "Completed" qilish
+            current_status = get_lesson_status(user_id, lesson_id)
+            if current_status != 'completed':
+                complete_lesson_db(user_id, lesson_id)
+
+        elif has_passed_before:
+            # OLDIN O'TGAN - eski natijani olamiz
             first_score = user_db.get_first_test_score(user_id, test_id)
 
     # Keyingi dars
@@ -279,15 +280,15 @@ async def show_test_result(message: types.Message, state: FSMContext):
 
     # Ball hisoblash
     test_count = user_db.get_test_count()
-    ball_per_test = round(100 / test_count, 2)
+    ball_per_test = round(100 / test_count, 2) if test_count > 0 else 0
     user_total_score = user_db.calculate_total_score(telegram_id)
 
     # Xabar tayyorlash
-    if is_first_attempt:
+    if passed and not has_passed_before:
+        # BIRINCHI MARTA O'TDI
         earned_this_test = round((percentage / 100) * ball_per_test, 2)
 
-        if passed:
-            result_text = f"""
+        result_text = f"""
 🎉 <b>Tabriklaymiz! Testdan o'tdingiz!</b>
 
 📚 <b>{lesson_name}</b>
@@ -299,24 +300,11 @@ async def show_test_result(message: types.Message, state: FSMContext):
 💰 Bu test: <b>+{earned_this_test}</b> ball
 🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
 """
-            if is_last_lesson:
-                result_text += "\n🎓 <b>Kurs tugadi! Sertifikat oling.</b>"
-        else:
-            result_text = f"""
-😔 <b>O'ta olmadingiz</b>
+        if is_last_lesson:
+            result_text += "\n🎓 <b>Kurs tugadi! Sertifikat oling.</b>"
 
-📚 <b>{lesson_name}</b>
-
-❌ To'g'ri: <b>{correct_count}/{total_count}</b>
-📊 Natija: <b>{percentage:.0f}%</b>
-🎯 O'tish bali: <b>{passing_score}%</b>
-
-💰 Bu test: <b>+{earned_this_test}</b> ball
-🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
-
-⚠️ <i>Keyingi darsga o'tish uchun qayta urining!</i>
-"""
-    else:
+    elif has_passed_before:
+        # OLDIN O'TGAN - qayta ishladi
         first_earned = round((first_score / 100) * ball_per_test, 2)
 
         result_text = f"""
@@ -325,12 +313,26 @@ async def show_test_result(message: types.Message, state: FSMContext):
 📚 <b>{lesson_name}</b>
 
 📊 Hozirgi: <b>{percentage:.0f}%</b>
-📊 Birinchi: <b>{first_score:.0f}%</b>
+📊 Saqlangan: <b>{first_score:.0f}%</b>
 
 💰 Hisobga olindi: <b>{first_earned}</b> ball
 🏆 Umumiy: <b>{user_total_score}/100</b> ⭐️
 
-⚠️ <i>Faqat birinchi natija hisobga olinadi.</i>
+⚠️ <i>Siz bu testdan allaqachon o'tgansiz.</i>
+"""
+
+    else:
+        # O'TMADI
+        result_text = f"""
+😔 <b>O'ta olmadingiz</b>
+
+📚 <b>{lesson_name}</b>
+
+❌ To'g'ri: <b>{correct_count}/{total_count}</b>
+📊 Natija: <b>{percentage:.0f}%</b>
+🎯 Kerak: <b>{passing_score}%</b>
+
+⚠️ <i>Qayta urining! Ball saqlanmadi.</i>
 """
 
     await state.finish()
