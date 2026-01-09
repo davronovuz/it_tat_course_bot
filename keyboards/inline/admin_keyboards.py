@@ -563,23 +563,22 @@ def correct_answer_select(lesson_id: int) -> InlineKeyboardMarkup:
 #                    FOYDALANUVCHILAR
 # ============================================================
 
-def users_menu() -> InlineKeyboardMarkup:
-    """Foydalanuvchilar menyusi"""
+def users_menu():
     keyboard = InlineKeyboardMarkup(row_width=2)
-
     keyboard.add(
-        InlineKeyboardButton("📋 Barcha", callback_data="admin:users:all"),
+        InlineKeyboardButton("👥 Barcha", callback_data="admin:users:all"),
+        InlineKeyboardButton("💰 Pullik", callback_data="admin:users:paid")
+    )
+    keyboard.add(
+        InlineKeyboardButton("🆕 Sotib olmaganlar", callback_data="admin:users:not_paid"),  # YANGI
+        InlineKeyboardButton("🏆 Top", callback_data="admin:users:top")
+    )
+    keyboard.add(
         InlineKeyboardButton("🔍 Qidirish", callback_data="admin:users:search")
     )
     keyboard.add(
-        InlineKeyboardButton("💰 Pullik", callback_data="admin:users:paid"),
-        InlineKeyboardButton("🏆 Top", callback_data="admin:users:top")
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:main")
     )
-    keyboard.add(InlineKeyboardButton(
-        "⬅️ Orqaga",
-        callback_data="admin:main"
-    ))
-
     return keyboard
 
 

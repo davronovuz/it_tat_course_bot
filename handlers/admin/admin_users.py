@@ -792,3 +792,206 @@ async def show_user_payments(call: types.CallbackQuery):
         reply_markup=back_button(f"admin:user:view:{user_id}")
     )
     await call.answer()
+
+
+# ============================================================
+#                    SOTIB OLMAGANLAR (PAGINATION BILAN)
+# ============================================================
+
+@dp.callback_query_handler(text="admin:users:not_paid")
+@admin_required
+async def show_not_paid_users(call: types.CallbackQuery):
+    """Sotib olmaganlar - 1-sahifa"""
+    await show_not_paid_page(call, page=0)
+
+
+@dp.callback_query_handler(text_startswith="admin:users:not_paid:")
+@admin_required
+async def show_not_paid_users_page(call: types.CallbackQuery):
+    """Sotib olmaganlar - pagination"""
+    page = int(call.data.split(":")[-1])
+    await show_not_paid_page(call, page)
+
+
+async def show_not_paid_page(call: types.CallbackQuery, page: int = 0):
+    """Sotib olmaganlar ro'yxati (pagination bilan)"""
+
+    per_page = 10  # Har sahifada 10 ta
+    offset = page * per_page
+
+    # Jami sonini olish
+    total_result = user_db.execute(
+        """SELECT COUNT(*) FROM Users u
+           WHERE u.phone IS NOT NULL
+           AND u.id NOT IN (
+               SELECT DISTINCT user_id FROM Payments WHERE status = 'approved'
+           )
+           AND u.id NOT IN (
+               SELECT DISTINCT user_id FROM ManualAccess WHERE is_active = 1
+           )""",
+        fetchone=True
+    )
+    total = total_result[0] if total_result else 0
+
+    # Userlarni olish
+    users = user_db.execute(
+        """SELECT u.id, u.telegram_id, u.full_name, u.phone, u.username, u.created_at
+           FROM Users u
+           WHERE u.phone IS NOT NULL
+           AND u.id NOT IN (
+               SELECT DISTINCT user_id FROM Payments WHERE status = 'approved'
+           )
+           AND u.id NOT IN (
+               SELECT DISTINCT user_id FROM ManualAccess WHERE is_active = 1
+           )
+           ORDER BY u.created_at DESC
+           LIMIT ? OFFSET ?""",
+        parameters=(per_page, offset),
+        fetchall=True
+    )
+
+    if not users and page == 0:
+        await call.answer("📭 Bunday foydalanuvchilar yo'q", show_alert=True)
+        return
+
+    total_pages = (total + per_page - 1) // per_page  # Jami sahifalar
+
+    text = f"""
+🆕 <b>Sotib olmaganlar</b>
+
+Ro'yxatdan o'tgan, lekin kurs olmagan:
+📊 Jami: <b>{total}</b> ta
+📄 Sahifa: <b>{page + 1}/{total_pages}</b>
+
+"""
+
+    # Har bir user ma'lumotlari
+    for i, u in enumerate(users, start=offset + 1):
+        user_id = u[0]
+        telegram_id = u[1]
+        name = u[2] or "Noma'lum"
+        phone = u[3] or "Yo'q"
+        username = f"@{u[4]}" if u[4] else "yo'q"
+        date = u[5][:10] if u[5] else ""
+
+        text += f"""
+<b>{i}. {name}</b>
+   📱 {phone}
+   💬 {username}
+   📅 {date}
+"""
+
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+
+    # Pagination tugmalari
+    nav_buttons = []
+
+    if page > 0:
+        nav_buttons.append(
+            types.InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin:users:not_paid:{page - 1}")
+        )
+
+    if page < total_pages - 1:
+        nav_buttons.append(
+            types.InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin:users:not_paid:{page + 1}")
+        )
+
+    if nav_buttons:
+        keyboard.row(*nav_buttons)
+
+    # Export tugmasi (katta ro'yxat uchun)
+    if total > 10:
+        keyboard.add(
+            types.InlineKeyboardButton("📥 Excel yuklash", callback_data="admin:users:not_paid:export")
+        )
+
+    keyboard.add(
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:users")
+    )
+
+    await call.message.edit_text(text, reply_markup=keyboard)
+    await call.answer()
+
+
+# ============================================================
+#                    EXCEL EXPORT
+# ============================================================
+
+@dp.callback_query_handler(text="admin:users:not_paid:export")
+@admin_required
+async def export_not_paid_users(call: types.CallbackQuery):
+    """Sotib olmaganlarni Excel ga export qilish"""
+
+    await call.answer("⏳ Fayl tayyorlanmoqda...", show_alert=False)
+
+    users = user_db.execute(
+        """SELECT u.full_name, u.phone, u.username, u.telegram_id, u.created_at
+           FROM Users u
+           WHERE u.phone IS NOT NULL
+           AND u.id NOT IN (
+               SELECT DISTINCT user_id FROM Payments WHERE status = 'approved'
+           )
+           AND u.id NOT IN (
+               SELECT DISTINCT user_id FROM ManualAccess WHERE is_active = 1
+           )
+           ORDER BY u.created_at DESC""",
+        fetchall=True
+    )
+
+    if not users:
+        await call.answer("📭 Ma'lumot yo'q", show_alert=True)
+        return
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, Alignment
+        import io
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Sotib olmaganlar"
+
+        # Sarlavhalar
+        headers = ["№", "Ism Familya", "Telefon", "Username", "Telegram ID", "Ro'yxatdan o'tgan"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center')
+
+        # Ma'lumotlar
+        for row, u in enumerate(users, 2):
+            ws.cell(row=row, column=1, value=row - 1)
+            ws.cell(row=row, column=2, value=u[0] or "Noma'lum")
+            ws.cell(row=row, column=3, value=u[1] or "")
+            ws.cell(row=row, column=4, value=f"@{u[2]}" if u[2] else "")
+            ws.cell(row=row, column=5, value=u[3])
+            ws.cell(row=row, column=6, value=u[4][:10] if u[4] else "")
+
+        # Ustun kengligini sozlash
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 25
+        ws.column_dimensions['C'].width = 18
+        ws.column_dimensions['D'].width = 18
+        ws.column_dimensions['E'].width = 15
+        ws.column_dimensions['F'].width = 15
+
+        # Faylni saqlash
+        file_stream = io.BytesIO()
+        wb.save(file_stream)
+        file_stream.seek(0)
+
+        from aiogram.types import InputFile
+        from datetime import datetime
+
+        filename = f"sotib_olmaganlar_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+
+        await call.message.answer_document(
+            InputFile(file_stream, filename=filename),
+            caption=f"📥 <b>Sotib olmaganlar ro'yxati</b>\n\nJami: {len(users)} ta"
+        )
+
+    except ImportError:
+        await call.message.answer("❌ Excel yaratish uchun openpyxl kerak!")
+    except Exception as e:
+        await call.message.answer(f"❌ Xatolik: {e}")
+
