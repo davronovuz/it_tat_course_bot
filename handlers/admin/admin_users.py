@@ -1271,7 +1271,7 @@ async def access_close_course(call: types.CallbackQuery):
         return
 
     # Dostupni yopish
-    user_db.revoke_access(telegram_id, course_id)
+    user_db.revoke_full_access(telegram_id, course_id)
 
     # Userga xabar
     try:

@@ -2963,3 +2963,51 @@ class UserDatabase(Database):
         )
 
         return new_score
+
+    # ============================================================
+    #                    DOSTUPNI TO'LIQ YOPISH (YANGI)
+    # ============================================================
+
+    def revoke_full_access(self, telegram_id: int, course_id: int) -> bool:
+        """
+        Dostupni TO'LIQ yopish:
+        1. ManualAccess yopiladi
+        2. Payments revoked bo'ladi
+        3. UserProgress locked bo'ladi
+        """
+        user_id = self.get_user_id(telegram_id)
+        if not user_id:
+            return False
+
+        try:
+            # 1. ManualAccess ni yopish
+            self.execute(
+                "UPDATE ManualAccess SET is_active = FALSE WHERE user_id = ? AND course_id = ?",
+                parameters=(user_id, course_id),
+                commit=True
+            )
+
+            # 2. Payments ni ham yopish (agar bor bo'lsa)
+            self.execute(
+                "UPDATE Payments SET status = 'revoked' WHERE user_id = ? AND course_id = ? AND status = 'approved'",
+                parameters=(user_id, course_id),
+                commit=True
+            )
+
+            # 3. UserProgress dagi darslarni yopish (locked qilish)
+            self.execute(
+                """UPDATE UserProgress SET status = 'locked' 
+                   WHERE user_id = ? AND lesson_id IN (
+                       SELECT l.id FROM Lessons l
+                       JOIN Modules m ON l.module_id = m.id
+                       WHERE m.course_id = ?
+                   )""",
+                parameters=(user_id, course_id),
+                commit=True
+            )
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Dostup yopishda xato: {e}")
+            return False
