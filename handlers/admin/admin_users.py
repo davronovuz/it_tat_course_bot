@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from loader import dp, bot, user_db
 from keyboards.inline.admin_keyboards import users_menu, back_button
 from keyboards.default.admin_keyboards import admin_cancel_button, admin_skip_button, remove_keyboard
-from states.admin_states import UserManageStates
+from states.admin_states import UserManageStates,AccessManageStates
 from handlers.admin.admin_start import admin_required
 
 
@@ -995,3 +995,296 @@ async def export_not_paid_users(call: types.CallbackQuery):
     except Exception as e:
         await call.message.answer(f"❌ Xatolik: {e}")
 
+
+# ============================================================
+#                    DOSTUP BOSHQARUVI (YANGI)
+# ============================================================
+
+from states.admin_states import AccessManageStates
+
+
+@dp.callback_query_handler(text="admin:users:access_manage")
+@admin_required
+async def access_manage_start(call: types.CallbackQuery):
+    """Dostup boshqaruvi - bosh sahifa"""
+
+    text = """
+🔐 <b>Dostup boshqaruvi</b>
+
+Bu yerda istalgan foydalanuvchiga:
+- 🔓 Kursga dostup ochish
+- 🔒 Dostupni yopish
+
+Foydalanuvchini qidiring:
+- Telegram ID
+- Telefon raqam
+- Ism
+- Username
+"""
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("🔍 Foydalanuvchi qidirish", callback_data="admin:access:search")
+    )
+    keyboard.add(
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin:users")
+    )
+
+    await call.message.edit_text(text, reply_markup=keyboard)
+    await call.answer()
+
+
+@dp.callback_query_handler(text="admin:access:search")
+@admin_required
+async def access_search_start(call: types.CallbackQuery, state: FSMContext):
+    """Dostup uchun user qidirish"""
+
+    await call.message.edit_text(
+        "🔍 <b>Foydalanuvchi qidirish</b>\n\n"
+        "Qidirish uchun kiriting:\n"
+        "• Telegram ID\n"
+        "• Telefon raqam\n"
+        "• Ism\n"
+        "• Username"
+    )
+
+    await call.message.answer(
+        "✍️ Qidirish so'zini kiriting:",
+        reply_markup=admin_cancel_button()
+    )
+
+    await AccessManageStates.search.set()
+    await call.answer()
+
+
+@dp.message_handler(state=AccessManageStates.search)
+async def access_search_process(message: types.Message, state: FSMContext):
+    """Qidirish natijasi - dostup uchun"""
+    if message.text == "❌ Bekor qilish":
+        await state.finish()
+        await message.answer("❌ Bekor qilindi", reply_markup=remove_keyboard())
+        return
+
+    query = message.text.strip()
+
+    # Qidirish
+    users = user_db.execute(
+        """SELECT id, telegram_id, full_name, phone, username
+           FROM Users
+           WHERE telegram_id LIKE ? 
+              OR phone LIKE ? 
+              OR full_name LIKE ? 
+              OR username LIKE ?
+           LIMIT 10""",
+        parameters=(f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"),
+        fetchall=True
+    )
+
+    await state.finish()
+
+    if not users:
+        await message.answer(
+            f"📭 <b>\"{query}\"</b> bo'yicha hech narsa topilmadi.",
+            reply_markup=remove_keyboard()
+        )
+        return
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+
+    text = f"🔍 <b>Topildi:</b> {len(users)} ta\n\n"
+
+    for u in users:
+        user_id = u[0]
+        name = u[2] or "Noma'lum"
+        phone = u[3] or ""
+
+        btn_text = f"👤 {name}"
+        if phone:
+            btn_text += f" | {phone}"
+
+        keyboard.add(types.InlineKeyboardButton(
+            btn_text,
+            callback_data=f"admin:access:user:{user_id}"
+        ))
+
+    keyboard.add(types.InlineKeyboardButton(
+        "🔍 Qayta qidirish",
+        callback_data="admin:access:search"
+    ))
+    keyboard.add(types.InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data="admin:users:access_manage"
+    ))
+
+    await message.answer(text, reply_markup=keyboard)
+
+
+@dp.callback_query_handler(text_startswith="admin:access:user:")
+@admin_required
+async def access_user_courses(call: types.CallbackQuery):
+    """User kurslarini ko'rsatish - dostup bilan"""
+    user_id = int(call.data.split(":")[-1])
+
+    # User ma'lumotlari
+    user = user_db.execute(
+        "SELECT telegram_id, full_name, phone FROM Users WHERE id = ?",
+        parameters=(user_id,),
+        fetchone=True
+    )
+
+    if not user:
+        await call.answer("❌ Foydalanuvchi topilmadi!", show_alert=True)
+        return
+
+    telegram_id = user[0]
+    user_name = user[1] or "Noma'lum"
+    phone = user[2] or "Yo'q"
+
+    # Barcha kurslar
+    courses = user_db.get_all_courses(active_only=True)
+
+    text = f"""
+🔐 <b>Dostup boshqaruvi</b>
+
+👤 <b>{user_name}</b>
+📱 {phone}
+🆔 <code>{telegram_id}</code>
+
+📚 <b>Kurslar:</b>
+"""
+
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+
+    for course in courses:
+        course_id = course['id']
+        course_name = course['name']
+
+        # Dostup bormi tekshirish
+        has_access = user_db.has_course_access(telegram_id, course_id)
+
+        if has_access:
+            status = "✅"
+            btn_text = f"{status} {course_name} | 🔒 Yopish"
+            callback = f"admin:access:close:{user_id}:{course_id}"
+        else:
+            status = "❌"
+            btn_text = f"{status} {course_name} | 🔓 Ochish"
+            callback = f"admin:access:open:{user_id}:{course_id}"
+
+        keyboard.add(types.InlineKeyboardButton(btn_text, callback_data=callback))
+
+    keyboard.add(types.InlineKeyboardButton(
+        "🔍 Boshqa user",
+        callback_data="admin:access:search"
+    ))
+    keyboard.add(types.InlineKeyboardButton(
+        "⬅️ Orqaga",
+        callback_data="admin:users:access_manage"
+    ))
+
+    await call.message.edit_text(text, reply_markup=keyboard)
+    await call.answer()
+
+
+@dp.callback_query_handler(text_startswith="admin:access:open:")
+@admin_required
+async def access_open_course(call: types.CallbackQuery):
+    """Kursga dostup ochish"""
+    parts = call.data.split(":")
+    user_id = int(parts[3])
+    course_id = int(parts[4])
+
+    # User telegram_id
+    user = user_db.execute(
+        "SELECT telegram_id, full_name FROM Users WHERE id = ?",
+        parameters=(user_id,),
+        fetchone=True
+    )
+
+    if not user:
+        await call.answer("❌ Foydalanuvchi topilmadi!", show_alert=True)
+        return
+
+    telegram_id = user[0]
+    user_name = user[1] or "Noma'lum"
+
+    # Kurs
+    course = user_db.get_course(course_id)
+    if not course:
+        await call.answer("❌ Kurs topilmadi!", show_alert=True)
+        return
+
+    # Dostup berish
+    success = user_db.grant_manual_access(
+        telegram_id=telegram_id,
+        course_id=course_id,
+        admin_telegram_id=call.from_user.id,
+        reason="Admin tomonidan berildi"
+    )
+
+    if success:
+        # Userga xabar
+        try:
+            await bot.send_message(
+                telegram_id,
+                f"🎉 Sizga <b>{course['name']}</b> kursiga dostup berildi!\n\n"
+                f"📚 \"Mening kurslarim\" bo'limiga kiring."
+            )
+        except:
+            pass
+
+        await call.answer(f"✅ {user_name} ga dostup berildi!", show_alert=True)
+    else:
+        await call.answer("❌ Xatolik!", show_alert=True)
+
+    # Qayta yuklash - call.data ni o'zgartiramiz
+    call.data = f"admin:access:user:{user_id}"
+    await access_user_courses(call)
+
+
+@dp.callback_query_handler(text_startswith="admin:access:close:")
+@admin_required
+async def access_close_course(call: types.CallbackQuery):
+    """Kurs dostupini yopish"""
+    parts = call.data.split(":")
+    user_id = int(parts[3])
+    course_id = int(parts[4])
+
+    # User telegram_id
+    user = user_db.execute(
+        "SELECT telegram_id, full_name FROM Users WHERE id = ?",
+        parameters=(user_id,),
+        fetchone=True
+    )
+
+    if not user:
+        await call.answer("❌ Foydalanuvchi topilmadi!", show_alert=True)
+        return
+
+    telegram_id = user[0]
+    user_name = user[1] or "Noma'lum"
+
+    # Kurs
+    course = user_db.get_course(course_id)
+    if not course:
+        await call.answer("❌ Kurs topilmadi!", show_alert=True)
+        return
+
+    # Dostupni yopish
+    user_db.revoke_access(telegram_id, course_id)
+
+    # Userga xabar
+    try:
+        await bot.send_message(
+            telegram_id,
+            f"⚠️ Sizning <b>{course['name']}</b> kursiga dostupingiz yopildi.\n\n"
+            f"Savollar bo'lsa admin bilan bog'laning."
+        )
+    except:
+        pass
+
+    await call.answer(f"🔒 {user_name} dostup yopildi!", show_alert=True)
+
+    # Qayta yuklash
+    call.data = f"admin:access:user:{user_id}"
+    await access_user_courses(call)

@@ -565,6 +565,10 @@ def correct_answer_select(lesson_id: int) -> InlineKeyboardMarkup:
 
 def users_menu():
     keyboard = InlineKeyboardMarkup(row_width=2)
+
+    keyboard.add(
+        InlineKeyboardButton("🔐 Dostup boshqaruvi", callback_data="admin:users:access_manage")  # YANGI
+    )
     keyboard.add(
         InlineKeyboardButton("👥 Barcha", callback_data="admin:users:all"),
         InlineKeyboardButton("💰 Pullik", callback_data="admin:users:paid")

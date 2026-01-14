@@ -211,3 +211,13 @@ class BroadcastStates(StatesGroup):
     time = State()           # 3. Vaqtni tanlash (Hozir/Keyin)
     custom_time = State()    # 4. Aniq vaqtni kiritish (HH:MM)
     confirm = State()        # 5. Tasdiqlash
+
+
+# ============================================================
+#                    DOSTUP BOSHQARUVI STATES (YANGI)
+# ============================================================
+
+class AccessManageStates(StatesGroup):
+    """Dostup boshqaruvi holatlari"""
+
+    search = State()  # User qidirish
