@@ -21,7 +21,9 @@ from keyboards.inline.user_keyboards import (
 def check_has_paid_course(user_id: int) -> bool:
     """
     User kursni sotib olganmi?
+    Payments va ManualAccess tekshiriladi
     """
+    # 1. Payments tekshirish (revoked bo'lmagan)
     result = user_db.execute(
         "SELECT 1 FROM Payments WHERE user_id = ? AND status = 'approved' LIMIT 1",
         parameters=(user_id,),
@@ -30,9 +32,12 @@ def check_has_paid_course(user_id: int) -> bool:
     if result:
         return True
 
+    # 2. ManualAccess tekshirish (is_active = TRUE va muddati o'tmagan)
     result = user_db.execute(
         """SELECT 1 FROM ManualAccess WHERE user_id = ? 
-           AND (expires_at IS NULL OR expires_at > datetime('now')) LIMIT 1""",
+           AND is_active = 1
+           AND (expires_at IS NULL OR expires_at > datetime('now')) 
+           LIMIT 1""",
         parameters=(user_id,),
         fetchone=True
     )
