@@ -583,3 +583,75 @@ async def view_existing_certificate(call: types.CallbackQuery):
 
     except Exception as e:
         await call.message.answer(f"❌ Xatolik: {e}")
+
+
+
+# ============================================================
+# 7. ISMNI O'ZGARTIRISH (2-QADAM)
+# ============================================================
+@dp.callback_query_handler(text_startswith="cert:edit:")
+async def change_name_start(call: types.CallbackQuery, state: FSMContext):
+    """
+    Ism o'zgartirish tugmasi bosilganda
+    """
+    try:
+        parts = call.data.split(":")
+        course_id = int(parts[-1])
+
+        # Eski xabarni o'chirib tashlaymiz
+        try:
+            await call.message.delete()
+        except:
+            pass
+
+        await call.message.answer(
+            "📝 <b>Yangi ism va familiyangizni yozib yuboring:</b>\n\n"
+            "<i>Masalan: Olimov Botir</i>"
+        )
+
+        # Qaysi kurs uchunligini eslab qolamiz
+        await state.update_data(cert_course_id=course_id)
+
+        # State ga o'tkazamiz (Foydalanuvchidan matn kutish rejimi)
+        await CertificateStates.NewName.set()
+
+    except Exception as e:
+        print(f"Error changing name: {e}")
+        await call.answer("Xatolik bo'ldi", show_alert=True)
+
+
+@dp.message_handler(state=CertificateStates.NewName)
+async def change_name_save(message: types.Message, state: FSMContext):
+    """
+    Yangi ismni saqlash
+    """
+    new_name = message.text.strip()
+
+    # Ism juda qisqa bo'lsa
+    if len(new_name) < 3:
+        await message.answer("❌ Ism juda qisqa. Iltimos, to'liq ism-familiyani yozing:")
+        return
+
+    # Bazani yangilash
+    user_db.execute(
+        "UPDATE Users SET full_name = ? WHERE telegram_id = ?",
+        parameters=(new_name, message.from_user.id),
+        commit=True
+    )
+
+    # State dan ma'lumot olish
+    data = await state.get_data()
+    course_id = data.get('cert_course_id', 1)
+
+    # State ni yopish
+    await state.finish()
+
+    text = f"""
+✅ <b>Ism o'zgartirildi!</b>
+
+Sertifikatga yoziladi:
+👤 <b>{new_name}</b>
+
+Tasdiqlaysizmi?
+"""
+    await message.answer(text, reply_markup=confirm_name_keyboard(course_id))
