@@ -342,98 +342,116 @@ async def show_certificates_list(call: types.CallbackQuery):
 # ============================================================
 @dp.callback_query_handler(text_startswith="user:certificate:get:")
 async def check_and_ask_name(call: types.CallbackQuery):
-    course_id = int(call.data.split(":")[-1])
-    telegram_id = call.from_user.id
-    user_id = user_db.get_user_id(telegram_id)
+    try:
+        parts = call.data.split(":")
+        course_id = int(parts[-1])
+        telegram_id = call.from_user.id
+        user_id = user_db.get_user_id(telegram_id)
 
-    # 1. Progressni tekshirish (Manual SQL)
-    res_total = user_db.execute(
-        "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = ?",
-        parameters=(course_id,), fetchone=True
-    )
-    total = res_total[0] if res_total else 0
-    if total == 0:
-        course_id = 1
+        # 1. Agar oldin olgan bo'lsa -> Darhol beramiz
+        existing = user_db.get_certificate(telegram_id, course_id)
+        if existing:
+            await generate_and_send_final(call, telegram_id, course_id, existing)
+            return
+
+        # 2. PROGRESSNI HISOBLASH
+        # ----------------------------------------------------
+        # Jami darslar soni (faqat aktiv darslar)
         res_total = user_db.execute(
-            "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = 1", fetchone=True)
+            "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = ? AND l.is_active = 1",
+            parameters=(course_id,), fetchone=True
+        )
         total = res_total[0] if res_total else 0
 
-    res_done = user_db.execute(
-        """SELECT COUNT(*) FROM UserProgress up 
-           JOIN Lessons l ON up.lesson_id = l.id
-           JOIN Modules m ON l.module_id = m.id
-           WHERE up.user_id = ? AND m.course_id = ? AND up.status = 'completed'""",
-        parameters=(user_id, course_id), fetchone=True
-    )
-    done = res_done[0] if res_done else 0
-    percent = (done / total * 100) if total > 0 else 0
+        # Agar darslar soni 0 bo'lsa (xatolik bo'lmasligi uchun default 1 ga o'tamiz)
+        if total == 0:
+            course_id = 1
+            res_total = user_db.execute(
+                "SELECT COUNT(*) FROM Lessons l JOIN Modules m ON l.module_id = m.id WHERE m.course_id = 1",
+                fetchone=True)
+            total = res_total[0] if res_total else 0
 
-    if percent < 99 and total > 0:
-        await call.answer(f"❌ Kurs tugatilmagan! ({percent:.0f}%)", show_alert=True)
-        return
+        # Tugatilgan darslar soni
+        res_done = user_db.execute(
+            """SELECT COUNT(*) FROM UserProgress up 
+               JOIN Lessons l ON up.lesson_id = l.id
+               JOIN Modules m ON l.module_id = m.id
+               WHERE up.user_id = ? AND m.course_id = ? AND up.status = 'completed'""",
+            parameters=(user_id, course_id), fetchone=True
+        )
+        done = res_done[0] if res_done else 0
 
-    # 2. Agar oldin olgan bo'lsa -> Darhol beramiz
-    existing = user_db.get_certificate(telegram_id, course_id)
-    if existing:
-        await generate_and_send_final(call, telegram_id, course_id, existing)
-        return
+        # Foizni hisoblash
+        percent = (done / total * 100) if total > 0 else 0
 
-    # 3. Agar yo'q bo'lsa -> ISMNI TASDIQLASH
-    user = user_db.get_user(telegram_id)
-    full_name = user['full_name']
+        # --- 🔥 MUAMMONI HAL QILADIGAN QISM ---
 
-    text = f"""
+        is_ready = False
+        missed_details = []
+
+        # A) Agar 98% dan yuqori bo'lsa -> So'zsiz ruxsat beramiz
+        if percent >= 98:
+            is_ready = True
+
+        # B) Agar foiz kam bo'lsa ham (masalan 92%), TESTLARDAN O'TGANINI tekshiramiz
+        else:
+            all_tests_passed = True
+            # Kursdagi barcha darslarni olamiz
+            lessons = user_db.get_course_lessons(course_id)
+            test_found = False
+
+            for lesson in lessons:
+                if lesson['has_test']:
+                    test_found = True
+                    test = user_db.get_test_by_lesson(lesson['id'])
+                    # Agar test bor va user o'tmagan bo'lsa
+                    if test and not user_db.has_passed_test(telegram_id, test['id']):
+                        all_tests_passed = False
+                        # Nima qolib ketganini ro'yxatga yozamiz
+                        missed_details.append(f"📝 {lesson['name']}")
+
+            # Agar kursda testlar bor bo'lsa va hammasidan o'tgan bo'lsa -> TAYYOR!
+            if test_found and all_tests_passed:
+                is_ready = True
+            # Agar kursda umuman test yo'q bo'lsa, demak videolarni ko'rmagan
+            elif not test_found:
+                is_ready = False
+                missed_details.append("Videolarni oxirigacha ko'rmagansiz")
+            else:
+                is_ready = False
+
+        # 3. NATIJA: Agar tayyor bo'lmasa -> Xatolik chiqaradi
+        if not is_ready:
+            msg = f"❌ <b>Kurs to'liq tugatilmagan! ({percent:.0f}%)</b>\n\n"
+
+            if missed_details:
+                msg += "Siz quyidagi testlarni topshirmagansiz:\n"
+                msg += "\n".join(missed_details[:3])  # Faqat 3 tasini ko'rsatamiz
+                if len(missed_details) > 3: msg += "\n..."
+            else:
+                msg += "Iltimos, barcha darslarni ko'rib chiqing."
+
+            await call.answer("Tugatmagansiz", show_alert=False)
+            await call.message.answer(msg)
+            return
+
+        # 4. TAYYOR BO'LSA -> ISMNI TASDIQLASHGA O'TAMIZ
+        user = user_db.get_user(telegram_id)
+        full_name = user['full_name']
+
+        text = f"""
 🎓 <b>Sertifikat ma'lumotlarini tasdiqlang</b>
 
 Sertifikatga quyidagi ism-familiya yoziladi:
 👤 <b>{full_name}</b>
 
-<i>Agar ismingiz xato bo'lsa yoki nikneym turgan bo'lsa, "✏️ Ismni o'zgartirish" tugmasini bosing.</i>
+<i>Agar ismingiz xato bo'lsa, "✏️ Ismni o'zgartirish" tugmasini bosing.</i>
 """
-    await call.message.edit_text(text, reply_markup=confirm_name_keyboard(course_id))
+        await call.message.edit_text(text, reply_markup=confirm_name_keyboard(course_id))
 
-
-# ============================================================
-# 7. ISMNI O'ZGARTIRISH (2-QADAM)
-# ============================================================
-@dp.callback_query_handler(text_startswith="cert:change:")
-async def change_name_start(call: types.CallbackQuery, state: FSMContext):
-    course_id = int(call.data.split(":")[-1])
-
-    await call.message.delete()
-    await call.message.answer(
-        "📝 <b>Iltimos, ism va familiyangizni to'liq yozib yuboring:</b>\n\n"
-        "<i>Masalan: Aminov Azamat</i>"
-    )
-
-    await state.update_data(cert_course_id=course_id)
-    await CertificateStates.NewName.set()
-
-
-@dp.message_handler(state=CertificateStates.NewName)
-async def change_name_save(message: types.Message, state: FSMContext):
-    new_name = message.text.strip()
-
-    # Bazani yangilash
-    user_db.execute(
-        "UPDATE Users SET full_name = ? WHERE telegram_id = ?",
-        parameters=(new_name, message.from_user.id),
-        commit=True
-    )
-
-    data = await state.get_data()
-    course_id = data.get('cert_course_id', 1)
-    await state.finish()
-
-    text = f"""
-✅ <b>Ism o'zgartirildi!</b>
-
-Sertifikatga yoziladi:
-👤 <b>{new_name}</b>
-
-Tasdiqlaysizmi?
-"""
-    await message.answer(text, reply_markup=confirm_name_keyboard(course_id))
+    except Exception as e:
+        print(f"Error in certificate check: {e}")
+        await call.answer("❌ Xatolik yuz berdi", show_alert=True)
 
 
 # ============================================================
